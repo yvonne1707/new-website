@@ -443,10 +443,25 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   };
 
   const handleVerifyPendingOrder = (ord: Order) => {
-    onUpdateOrderStatus(ord.id, 'Confirmed');
-    showToast(`Payment verified for order ${ord.orderNumber} (${ord.customerName})! Order status set to "Confirmed".`);
+    handleAcceptOrder(ord, 'Confirmed');
+  };
+
+  const handleAcceptOrder = (ord: Order, targetStatus: Order['status'] = 'Completed') => {
+    onUpdateOrderStatus(ord.id, targetStatus);
+    showToast(`Order ${ord.orderNumber} for ${ord.customerName} accepted & marked as "${targetStatus}"!`);
     if (ord.customerEmail) {
       onSendOrderEmailNotification(ord.id, ord.customerEmail);
+    }
+  };
+
+  const handleRejectOrder = (ord: Order) => {
+    const reason = window.prompt(
+      `Enter reason for rejecting order ${ord.orderNumber} (e.g. M-Pesa code not found on statement):`,
+      'M-Pesa transaction code mismatch / not found on statement'
+    );
+    if (reason !== null) {
+      onUpdateOrderStatus(ord.id, 'Cancelled');
+      showToast(`Order ${ord.orderNumber} rejected & marked as Cancelled.`, 'info');
     }
   };
 
@@ -719,212 +734,420 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
       {/* Tab 1: Orders & Transport Management */}
       {activeTab === 'orders' && (
-        <div className="bg-[#111] border border-zinc-800 overflow-hidden">
-          <div className="p-4 border-b border-zinc-800 flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h3 className="font-black uppercase tracking-wider text-white text-xs">
-                Customer Orders, Sacco Transport &amp; Payment Verification
-              </h3>
-              <p className="text-[10px] text-zinc-400">
-                Verify customer M-Pesa / Bank payments, dispatch Sacco parcels, and generate branded tax receipts.
-              </p>
-            </div>
+        <div className="space-y-6">
+          {/* DEDICATED ORDER APPROVAL & PAYMENT VERIFICATION SECTOR */}
+          {orders.filter((o) => o.status === 'Payment Pending Verification').length > 0 && (
+            <div className="bg-[#121212] border-2 border-amber-500/80 p-5 sm:p-6 shadow-2xl animate-fadeIn space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-amber-500/30 pb-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-amber-500 text-black flex items-center justify-center font-black rounded-xs shrink-0">
+                    <Clock className="w-6 h-6 animate-pulse" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="px-2 py-0.5 bg-amber-500 text-black font-black text-[10px] uppercase tracking-widest">
+                        Action Required
+                      </span>
+                      <span className="text-xs text-amber-400 font-bold uppercase tracking-wider">
+                        {orders.filter((o) => o.status === 'Payment Pending Verification').length} Order(s) Awaiting Admin Acceptance
+                      </span>
+                    </div>
+                    <h3 className="text-lg sm:text-xl font-black uppercase text-white font-display mt-0.5">
+                      Order Approval &amp; Payment Verification Sector
+                    </h3>
+                  </div>
+                </div>
 
-            {/* Filter by status */}
-            <div className="flex items-center gap-2">
-              <span className="text-[11px] font-black uppercase text-zinc-400">Filter Status:</span>
-              <select
-                value={orderStatusFilter}
-                onChange={(e) => setOrderStatusFilter(e.target.value)}
-                className="px-3 py-1.5 bg-zinc-900 border border-zinc-800 text-white font-bold text-xs uppercase focus:outline-none focus:border-orange-500 cursor-pointer"
-              >
-                <option value="all">All Orders ({orders.length})</option>
-                <option value="Payment Pending Verification">
-                  Pending Verification ({orders.filter((o) => o.status === 'Payment Pending Verification').length})
-                </option>
-                <option value="Confirmed">Confirmed ({orders.filter((o) => o.status === 'Confirmed').length})</option>
-                <option value="Processing">Processing ({orders.filter((o) => o.status === 'Processing').length})</option>
-                <option value="Dispatched">Dispatched ({orders.filter((o) => o.status === 'Dispatched').length})</option>
-                <option value="Delivered">Delivered ({orders.filter((o) => o.status === 'Delivered').length})</option>
-                <option value="Cancelled">Cancelled ({orders.filter((o) => o.status === 'Cancelled').length})</option>
-              </select>
-            </div>
-          </div>
+                <div className="text-xs text-zinc-400 max-w-sm">
+                  Review the customer's mandatory M-Pesa transaction code or bank slip. Click <strong>Accept &amp; Complete</strong> to finalize the order.
+                </div>
+              </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-[#050505] text-zinc-500 uppercase font-black tracking-wider text-[10px] border-b border-zinc-800">
-                <tr>
-                  <th className="px-4 py-3">Order / Date</th>
-                  <th className="px-4 py-3">Customer &amp; Phone</th>
-                  <th className="px-4 py-3">Ordered Items</th>
-                  <th className="px-4 py-3">Payment Info &amp; Code</th>
-                  <th className="px-4 py-3">Transport / Sacco</th>
-                  <th className="px-4 py-3">Status</th>
-                  <th className="px-4 py-3 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-zinc-800">
+              {/* Grid of pending orders requiring approval */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 pt-2">
                 {orders
-                  .filter((ord) => (orderStatusFilter === 'all' ? true : ord.status === orderStatusFilter))
-                  .map((ord) => {
-                    const isPendingVerification = ord.status === 'Payment Pending Verification';
-
-                    return (
-                      <tr key={ord.id} className={`hover:bg-zinc-900/50 ${isPendingVerification ? 'bg-amber-950/15' : ''}`}>
-                        <td className="px-4 py-3 font-semibold">
-                          <div className="text-white font-black">{ord.orderNumber}</div>
-                          <div className="text-[10px] text-zinc-500">{ord.date}</div>
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="font-bold text-white">{ord.customerName}</div>
-                          <a
-                            href={`tel:${ord.customerPhone}`}
-                            className="text-orange-400 hover:underline font-mono text-[11px] block"
-                          >
-                            {ord.customerPhone}
-                          </a>
-                          {ord.customerEmail && (
-                            <div className="text-[10px] text-zinc-400 font-mono flex items-center gap-1">
-                              <Mail className="w-3 h-3 text-zinc-500" />
-                              <span>{ord.customerEmail}</span>
-                            </div>
-                          )}
-                        </td>
-                        <td className="px-4 py-3 max-w-xs">
-                          {ord.items.map((i, idx) => (
-                            <div key={idx} className="truncate text-zinc-300">
-                              {i.quantity}x {i.product.name}
-                            </div>
-                          ))}
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="font-black text-white">Ksh {ord.total.toLocaleString()}</div>
-                          <div className="text-[10px] font-bold text-zinc-400 uppercase mt-0.5">
-                            {ord.paymentMethodName || ord.paymentMethod || 'M-Pesa'}
-                          </div>
-                          {ord.paidFromPhone && (
-                            <div className="text-[10px] font-mono text-emerald-400">
-                              From: {ord.paidFromPhone}
-                            </div>
-                          )}
-                          {ord.mpesaReceipt && (
-                            <div className="flex items-center gap-1 mt-0.5">
-                              <span className="font-mono text-[10px] bg-zinc-900 text-emerald-400 px-1.5 py-0.5 border border-zinc-800 block w-fit">
-                                {ord.mpesaReceipt}
+                  .filter((o) => o.status === 'Payment Pending Verification')
+                  .map((pendingOrd) => (
+                    <div
+                      key={pendingOrd.id}
+                      className="bg-black/90 border border-amber-500/50 p-4 sm:p-5 space-y-4 flex flex-col justify-between hover:border-amber-400 transition-colors"
+                    >
+                      <div className="space-y-3">
+                        {/* Order Header */}
+                        <div className="flex items-start justify-between gap-2 border-b border-zinc-800 pb-3">
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-base font-black text-white font-mono">
+                                {pendingOrd.orderNumber}
                               </span>
+                              <span className="px-1.5 py-0.2 bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[9px] font-black uppercase tracking-wider">
+                                Unverified
+                              </span>
+                            </div>
+                            <span className="text-[11px] text-zinc-400 block mt-0.5">
+                              Placed: {pendingOrd.date}
+                            </span>
+                          </div>
+
+                          <div className="text-right">
+                            <span className="text-[10px] text-zinc-500 uppercase font-black tracking-wider block">
+                              Payable Amount
+                            </span>
+                            <span className="text-xl font-black text-white font-mono">
+                              KES {pendingOrd.total.toLocaleString()}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Customer details */}
+                        <div className="grid grid-cols-2 gap-2 text-xs bg-zinc-900/80 p-2.5 border border-zinc-800">
+                          <div>
+                            <span className="text-[10px] text-zinc-500 uppercase font-bold block">Customer:</span>
+                            <span className="font-bold text-white block truncate">{pendingOrd.customerName}</span>
+                            <a
+                              href={`tel:${pendingOrd.customerPhone}`}
+                              className="text-orange-400 font-mono text-[11px] hover:underline block"
+                            >
+                              {pendingOrd.customerPhone}
+                            </a>
+                          </div>
+                          <div className="text-right">
+                            <span className="text-[10px] text-zinc-500 uppercase font-bold block">Delivery / Stage:</span>
+                            <span className="text-zinc-300 font-bold block truncate">
+                              {pendingOrd.transportDetails?.saccoOrCourier || pendingOrd.deliveryMethod.replace('_', ' ')}
+                            </span>
+                            <span className="text-[10px] text-zinc-500 block truncate">
+                              {pendingOrd.deliveryAddress || 'Branch Counter'}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Payment Channel & MANDATORY Transaction Code Box */}
+                        <div className="p-3 bg-zinc-950 border border-zinc-800 space-y-2">
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="text-[10px] text-zinc-400 font-black uppercase tracking-wider flex items-center gap-1">
+                              <Smartphone className="w-3.5 h-3.5 text-orange-500" />
+                              <span>Channel: {pendingOrd.paymentMethodName || pendingOrd.paymentMethod}</span>
+                            </span>
+                            {pendingOrd.paidFromPhone && (
+                              <span className="text-[11px] font-mono text-emerald-400">
+                                Paid From: <strong>{pendingOrd.paidFromPhone}</strong>
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="p-2.5 bg-[#0a0a0a] border border-emerald-500/40 flex items-center justify-between gap-2">
+                            <div>
+                              <span className="text-[9px] text-emerald-500 font-black uppercase tracking-widest block">
+                                M-Pesa / Bank Reference Code:
+                              </span>
+                              <span className="text-lg font-black font-mono text-emerald-400 tracking-wider">
+                                {pendingOrd.mpesaReceipt || 'NO CODE PROVIDED'}
+                              </span>
+                            </div>
+
+                            {pendingOrd.mpesaReceipt && (
                               <button
                                 type="button"
                                 onClick={() => {
-                                  navigator.clipboard?.writeText(ord.mpesaReceipt || '');
-                                  showToast(`Copied transaction code: ${ord.mpesaReceipt}`);
+                                  navigator.clipboard?.writeText(pendingOrd.mpesaReceipt || '');
+                                  showToast(`Copied M-Pesa Code: ${pendingOrd.mpesaReceipt}`);
                                 }}
-                                className="p-0.5 text-zinc-500 hover:text-white"
-                                title="Copy code"
+                                className="px-2.5 py-1.5 bg-zinc-900 hover:bg-emerald-500 hover:text-black text-emerald-400 border border-zinc-700 text-xs font-bold flex items-center gap-1 transition-colors cursor-pointer"
+                                title="Copy code to check against Safaricom statement"
                               >
-                                <Copy className="w-3 h-3" />
-                              </button>
-                            </div>
-                          )}
-                        </td>
-                        <td className="px-4 py-3">
-                          {ord.transportDetails ? (
-                            <div className="space-y-0.5">
-                              <div className="font-black text-white text-[11px] flex items-center gap-1">
-                                <Truck className="w-3.5 h-3.5 text-orange-500" />
-                                <span>{ord.transportDetails.saccoOrCourier}</span>
-                              </div>
-                              {ord.transportDetails.vehiclePlate && (
-                                <div className="text-[10px] font-mono text-orange-400 font-bold">
-                                  {ord.transportDetails.vehiclePlate}
-                                </div>
-                              )}
-                              {ord.transportDetails.estimatedArrivalTime && (
-                                <div className="text-[10px] text-emerald-400 font-bold flex items-center gap-1">
-                                  <Clock className="w-3 h-3" />
-                                  <span>ETA: {ord.transportDetails.estimatedArrivalTime}</span>
-                                </div>
-                              )}
-                            </div>
-                          ) : (
-                            <span className="text-[10px] font-bold text-zinc-500 uppercase">
-                              {ord.deliveryMethod.replace('_', ' ')}
-                            </span>
-                          )}
-                        </td>
-                        <td className="px-4 py-3">
-                          {isPendingVerification ? (
-                            <div className="space-y-1">
-                              <span className="px-2 py-0.5 bg-amber-500/20 text-amber-400 border border-amber-500/30 text-[10px] font-black uppercase tracking-wider block w-fit">
-                                Pending Verification
-                              </span>
-                              <button
-                                onClick={() => handleVerifyPendingOrder(ord)}
-                                className="px-2.5 py-1 bg-emerald-500 hover:bg-emerald-400 text-black font-black uppercase text-[10px] flex items-center gap-1 cursor-pointer transition-colors shadow"
-                              >
-                                <Check className="w-3 h-3" />
-                                <span>Verify &amp; Confirm</span>
-                              </button>
-                            </div>
-                          ) : (
-                            <select
-                              value={ord.status}
-                              onChange={(e) =>
-                                onUpdateOrderStatus(ord.id, e.target.value as Order['status'])
-                              }
-                              className="text-xs font-black uppercase tracking-wider bg-zinc-900 text-white border border-zinc-800 px-2.5 py-1.5 focus:outline-none focus:border-orange-500"
-                            >
-                              <option value="Payment Pending Verification">Pending Verification</option>
-                              <option value="Pending">Pending</option>
-                              <option value="Confirmed">Confirmed</option>
-                              <option value="Processing">Processing</option>
-                              <option value="Dispatched">Dispatched</option>
-                              <option value="Delivered">Delivered</option>
-                              <option value="Cancelled">Cancelled</option>
-                            </select>
-                          )}
-                        </td>
-                        <td className="px-4 py-3 text-right">
-                          <div className="inline-flex items-center gap-1.5">
-                            {isPendingVerification && (
-                              <button
-                                onClick={() => handleVerifyPendingOrder(ord)}
-                                title="Confirm M-Pesa / Bank payment has been received"
-                                className="p-2 bg-emerald-500 hover:bg-emerald-400 text-black font-bold transition-colors cursor-pointer"
-                              >
-                                <Check className="w-4 h-4" />
-                              </button>
-                            )}
-                            <button
-                              onClick={() => handleOpenTransportModal(ord)}
-                              title="Manage Sacco Transport / Delivery"
-                              className="p-2 bg-zinc-900 hover:bg-orange-500 hover:text-black text-zinc-300 border border-zinc-800 transition-colors cursor-pointer"
-                            >
-                              <Truck className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={() => setReceiptOrder(ord)}
-                              title="Generate / Print Official Receipt"
-                              className="p-2 bg-zinc-900 hover:bg-orange-500 hover:text-black text-zinc-300 border border-zinc-800 transition-colors cursor-pointer"
-                            >
-                              <Printer className="w-4 h-4" />
-                            </button>
-                            {ord.customerEmail && (
-                              <button
-                                onClick={() => onSendOrderEmailNotification(ord.id, ord.customerEmail!)}
-                                title={`Send Email Notification to ${ord.customerEmail}`}
-                                className="p-2 bg-zinc-900 hover:bg-emerald-500 hover:text-black text-emerald-400 border border-zinc-800 transition-colors cursor-pointer"
-                              >
-                                <Mail className="w-4 h-4" />
+                                <Copy className="w-3.5 h-3.5" />
+                                <span>Copy Code</span>
                               </button>
                             )}
                           </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-              </tbody>
-            </table>
+                        </div>
+
+                        {/* Items ordered summary */}
+                        <div className="text-xs text-zinc-400">
+                          <span className="text-[10px] text-zinc-500 uppercase font-black tracking-wider block mb-1">
+                            Items in Order ({pendingOrd.items.length}):
+                          </span>
+                          <div className="space-y-0.5 max-h-20 overflow-y-auto">
+                            {pendingOrd.items.map((it, idx) => (
+                              <div key={idx} className="flex justify-between text-[11px] text-zinc-300">
+                                <span className="truncate">{it.quantity}x {it.product.name}</span>
+                                <span className="font-mono text-zinc-400 ml-2">KES {(it.product.price * it.quantity).toLocaleString()}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Acceptance and Rejection Action Buttons */}
+                      <div className="pt-3 border-t border-zinc-800 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleAcceptOrder(pendingOrd, 'Completed')}
+                          className="w-full py-2.5 bg-emerald-500 hover:bg-emerald-400 text-black font-black uppercase text-xs tracking-wider flex items-center justify-center gap-1.5 transition-colors cursor-pointer shadow-lg"
+                          title="Accept payment & mark order as complete"
+                        >
+                          <CheckCircle className="w-4 h-4" />
+                          <span>Accept &amp; Complete</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handleAcceptOrder(pendingOrd, 'Confirmed')}
+                          className="w-full py-2.5 bg-zinc-900 hover:bg-zinc-800 text-emerald-400 border border-emerald-500/40 font-bold uppercase text-xs tracking-wider flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                          title="Accept payment & mark as confirmed for packing"
+                        >
+                          <Check className="w-4 h-4" />
+                          <span>Accept as Confirmed</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handleRejectOrder(pendingOrd)}
+                          className="w-full py-2 bg-red-950/60 hover:bg-red-900 text-red-300 border border-red-800/80 font-bold uppercase text-xs flex items-center justify-center gap-1 transition-colors cursor-pointer"
+                          title="Reject invalid transaction code"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                          <span>Reject / Invalid Code</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setReceiptOrder(pendingOrd)}
+                          className="w-full py-2 bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-700 font-bold uppercase text-xs flex items-center justify-center gap-1 transition-colors cursor-pointer"
+                        >
+                          <Printer className="w-3.5 h-3.5 text-orange-500" />
+                          <span>View Receipt</span>
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+              </div>
+            </div>
+          )}
+
+          {/* MAIN ORDERS TABLE */}
+          <div className="bg-[#111] border border-zinc-800 overflow-hidden">
+            <div className="p-4 border-b border-zinc-800 flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h3 className="font-black uppercase tracking-wider text-white text-xs">
+                  All Customer Orders &amp; Transport Log
+                </h3>
+                <p className="text-[10px] text-zinc-400">
+                  Manage confirmed spares orders, track Sacco parcel dispatches, and print official tax receipts.
+                </p>
+              </div>
+
+              {/* Filter by status */}
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] font-black uppercase text-zinc-400">Filter Status:</span>
+                <select
+                  value={orderStatusFilter}
+                  onChange={(e) => setOrderStatusFilter(e.target.value)}
+                  className="px-3 py-1.5 bg-zinc-900 border border-zinc-800 text-white font-bold text-xs uppercase focus:outline-none focus:border-orange-500 cursor-pointer"
+                >
+                  <option value="all">All Orders ({orders.length})</option>
+                  <option value="Payment Pending Verification">
+                    Pending Verification ({orders.filter((o) => o.status === 'Payment Pending Verification').length})
+                  </option>
+                  <option value="Completed">Completed ({orders.filter((o) => o.status === 'Completed').length})</option>
+                  <option value="Confirmed">Confirmed ({orders.filter((o) => o.status === 'Confirmed').length})</option>
+                  <option value="Processing">Processing ({orders.filter((o) => o.status === 'Processing').length})</option>
+                  <option value="Dispatched">Dispatched ({orders.filter((o) => o.status === 'Dispatched').length})</option>
+                  <option value="Delivered">Delivered ({orders.filter((o) => o.status === 'Delivered').length})</option>
+                  <option value="Cancelled">Cancelled ({orders.filter((o) => o.status === 'Cancelled').length})</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-[#050505] text-zinc-500 uppercase font-black tracking-wider text-[10px] border-b border-zinc-800">
+                  <tr>
+                    <th className="px-4 py-3">Order / Date</th>
+                    <th className="px-4 py-3">Customer &amp; Phone</th>
+                    <th className="px-4 py-3">Ordered Items</th>
+                    <th className="px-4 py-3">Payment Info &amp; Code</th>
+                    <th className="px-4 py-3">Transport / Sacco</th>
+                    <th className="px-4 py-3">Status</th>
+                    <th className="px-4 py-3 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-800">
+                  {orders
+                    .filter((ord) => (orderStatusFilter === 'all' ? true : ord.status === orderStatusFilter))
+                    .map((ord) => {
+                      const isPendingVerification = ord.status === 'Payment Pending Verification';
+                      const isCompleted = ord.status === 'Completed';
+
+                      return (
+                        <tr key={ord.id} className={`hover:bg-zinc-900/50 ${isPendingVerification ? 'bg-amber-950/15' : ''}`}>
+                          <td className="px-4 py-3 font-semibold">
+                            <div className="text-white font-black">{ord.orderNumber}</div>
+                            <div className="text-[10px] text-zinc-500">{ord.date}</div>
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="font-bold text-white">{ord.customerName}</div>
+                            <a
+                              href={`tel:${ord.customerPhone}`}
+                              className="text-orange-400 hover:underline font-mono text-[11px] block"
+                            >
+                              {ord.customerPhone}
+                            </a>
+                            {ord.customerEmail && (
+                              <div className="text-[10px] text-zinc-400 font-mono flex items-center gap-1">
+                                <Mail className="w-3 h-3 text-zinc-500" />
+                                <span>{ord.customerEmail}</span>
+                              </div>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 max-w-xs">
+                            {ord.items.map((i, idx) => (
+                              <div key={idx} className="truncate text-zinc-300">
+                                {i.quantity}x {i.product.name}
+                              </div>
+                            ))}
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="font-black text-white">Ksh {ord.total.toLocaleString()}</div>
+                            <div className="text-[10px] font-bold text-zinc-400 uppercase mt-0.5">
+                              {ord.paymentMethodName || ord.paymentMethod || 'M-Pesa'}
+                            </div>
+                            {ord.paidFromPhone && (
+                              <div className="text-[10px] font-mono text-emerald-400">
+                                From: {ord.paidFromPhone}
+                              </div>
+                            )}
+                            {ord.mpesaReceipt && (
+                              <div className="flex items-center gap-1 mt-0.5">
+                                <span className="font-mono text-[10px] bg-zinc-900 text-emerald-400 px-1.5 py-0.5 border border-zinc-800 block w-fit font-bold">
+                                  {ord.mpesaReceipt}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    navigator.clipboard?.writeText(ord.mpesaReceipt || '');
+                                    showToast(`Copied transaction code: ${ord.mpesaReceipt}`);
+                                  }}
+                                  className="p-0.5 text-zinc-500 hover:text-white cursor-pointer"
+                                  title="Copy code"
+                                >
+                                  <Copy className="w-3 h-3" />
+                                </button>
+                              </div>
+                            )}
+                          </td>
+                          <td className="px-4 py-3">
+                            {ord.transportDetails ? (
+                              <div className="space-y-0.5">
+                                <div className="font-black text-white text-[11px] flex items-center gap-1">
+                                  <Truck className="w-3.5 h-3.5 text-orange-500" />
+                                  <span>{ord.transportDetails.saccoOrCourier}</span>
+                                </div>
+                                {ord.transportDetails.vehiclePlate && (
+                                  <div className="text-[10px] font-mono text-orange-400 font-bold">
+                                    {ord.transportDetails.vehiclePlate}
+                                  </div>
+                                )}
+                                {ord.transportDetails.estimatedArrivalTime && (
+                                  <div className="text-[10px] text-emerald-400 font-bold flex items-center gap-1">
+                                    <Clock className="w-3 h-3" />
+                                    <span>ETA: {ord.transportDetails.estimatedArrivalTime}</span>
+                                  </div>
+                                )}
+                              </div>
+                            ) : (
+                              <span className="text-[10px] font-bold text-zinc-500 uppercase">
+                                {ord.deliveryMethod.replace('_', ' ')}
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3">
+                            {isPendingVerification ? (
+                              <div className="space-y-1">
+                                <span className="px-2 py-0.5 bg-amber-500/20 text-amber-400 border border-amber-500/30 text-[10px] font-black uppercase tracking-wider block w-fit">
+                                  Pending Approval
+                                </span>
+                                <button
+                                  onClick={() => handleAcceptOrder(ord, 'Completed')}
+                                  className="px-2.5 py-1 bg-emerald-500 hover:bg-emerald-400 text-black font-black uppercase text-[10px] flex items-center gap-1 cursor-pointer transition-colors shadow"
+                                  title="Accept and mark completed"
+                                >
+                                  <CheckCircle className="w-3 h-3" />
+                                  <span>Accept &amp; Complete</span>
+                                </button>
+                              </div>
+                            ) : (
+                              <select
+                                value={ord.status}
+                                onChange={(e) =>
+                                  onUpdateOrderStatus(ord.id, e.target.value as Order['status'])
+                                }
+                                className={`text-xs font-black uppercase tracking-wider bg-zinc-900 border px-2.5 py-1.5 focus:outline-none focus:border-orange-500 ${
+                                  isCompleted ? 'text-emerald-400 border-emerald-500/40' : 'text-white border-zinc-800'
+                                }`}
+                              >
+                                <option value="Payment Pending Verification">Pending Verification</option>
+                                <option value="Completed">Completed</option>
+                                <option value="Confirmed">Confirmed</option>
+                                <option value="Processing">Processing</option>
+                                <option value="Dispatched">Dispatched</option>
+                                <option value="Delivered">Delivered</option>
+                                <option value="Cancelled">Cancelled</option>
+                              </select>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-right">
+                            <div className="inline-flex items-center gap-1.5">
+                              {isPendingVerification && (
+                                <>
+                                  <button
+                                    onClick={() => handleAcceptOrder(ord, 'Completed')}
+                                    title="Accept & Complete Order"
+                                    className="p-2 bg-emerald-500 hover:bg-emerald-400 text-black font-bold transition-colors cursor-pointer"
+                                  >
+                                    <CheckCircle className="w-4 h-4" />
+                                  </button>
+                                  <button
+                                    onClick={() => handleRejectOrder(ord)}
+                                    title="Reject Order / Invalid Code"
+                                    className="p-2 bg-red-900 hover:bg-red-800 text-red-200 transition-colors cursor-pointer"
+                                  >
+                                    <X className="w-4 h-4" />
+                                  </button>
+                                </>
+                              )}
+                              <button
+                                onClick={() => handleOpenTransportModal(ord)}
+                                title="Manage Sacco Transport / Delivery"
+                                className="p-2 bg-zinc-900 hover:bg-orange-500 hover:text-black text-zinc-300 border border-zinc-800 transition-colors cursor-pointer"
+                              >
+                                <Truck className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => setReceiptOrder(ord)}
+                                title="Generate / Print Official Receipt"
+                                className="p-2 bg-zinc-900 hover:bg-orange-500 hover:text-black text-zinc-300 border border-zinc-800 transition-colors cursor-pointer"
+                              >
+                                <Printer className="w-4 h-4" />
+                              </button>
+                              {ord.customerEmail && (
+                                <button
+                                  onClick={() => onSendOrderEmailNotification(ord.id, ord.customerEmail!)}
+                                  title={`Send Email Notification to ${ord.customerEmail}`}
+                                  className="p-2 bg-zinc-900 hover:bg-emerald-500 hover:text-black text-emerald-400 border border-zinc-800 transition-colors cursor-pointer"
+                                >
+                                  <Mail className="w-4 h-4" />
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       )}

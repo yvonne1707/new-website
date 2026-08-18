@@ -132,18 +132,21 @@ export const PaymentCheckoutModal: React.FC<PaymentCheckoutModalProps> = ({
         setValidationError('Please enter the phone number you paid from (e.g. 0722123456).');
         return;
       }
-      const refCode = transactionCode.trim() ? transactionCode.trim().toUpperCase() : `SM-${Date.now().toString().slice(-6)}`;
+      if (!transactionCode.trim() || transactionCode.trim().length < 6) {
+        setValidationError('M-Pesa Confirmation Code is MANDATORY. Please enter the transaction code from your Safaricom SMS (e.g. SKH8920141).');
+        return;
+      }
       onPaymentSubmitted({
         paymentMethod: 'send_money',
         paymentMethodName: selectedMethod.name,
-        transactionReference: refCode,
+        transactionReference: transactionCode.trim().toUpperCase(),
         paidFromPhone: paidFromPhone.trim(),
         notes: extraNotes.trim() || `Paid from phone: ${paidFromPhone.trim()}`,
       });
       setCurrentStep('submitted');
     } else if (selectedMethod.type === 'paybill') {
       if (!transactionCode.trim() || transactionCode.trim().length < 6) {
-        setValidationError('Please enter your M-Pesa transaction confirmation code (e.g. SKH892014).');
+        setValidationError('M-Pesa Confirmation Code is MANDATORY. Please enter your Safaricom confirmation code (e.g. SKH8920141).');
         return;
       }
       onPaymentSubmitted({
@@ -155,7 +158,7 @@ export const PaymentCheckoutModal: React.FC<PaymentCheckoutModalProps> = ({
       setCurrentStep('submitted');
     } else if (selectedMethod.type === 'till_number') {
       if (!transactionCode.trim() || transactionCode.trim().length < 6) {
-        setValidationError('Please enter your M-Pesa transaction confirmation code (e.g. SKH892014).');
+        setValidationError('M-Pesa Confirmation Code is MANDATORY. Please enter your Safaricom confirmation code (e.g. SKH8920141).');
         return;
       }
       onPaymentSubmitted({
@@ -167,7 +170,7 @@ export const PaymentCheckoutModal: React.FC<PaymentCheckoutModalProps> = ({
       setCurrentStep('submitted');
     } else if (selectedMethod.type === 'bank_transfer') {
       if (!bankReference.trim() || bankReference.trim().length < 4) {
-        setValidationError('Please enter your bank transfer reference, receipt number, or slip ID.');
+        setValidationError('Bank Transfer Reference is MANDATORY. Please enter your bank transfer reference or slip ID.');
         return;
       }
       onPaymentSubmitted({
@@ -428,17 +431,24 @@ export const PaymentCheckoutModal: React.FC<PaymentCheckoutModalProps> = ({
                     </div>
 
                     <div>
-                      <label className="block text-xs font-black uppercase tracking-wider text-zinc-400 mb-1">
-                        M-Pesa SMS Code (Optional / Recommended):
+                      <label className="block text-xs font-black uppercase tracking-wider text-white mb-1">
+                        M-Pesa Transaction Code <span className="text-red-400">*</span>:
                       </label>
                       <input
                         type="text"
+                        required
                         value={transactionCode}
-                        onChange={(e) => setTransactionCode(e.target.value.toUpperCase())}
+                        onChange={(e) => {
+                          setTransactionCode(e.target.value.toUpperCase());
+                          setValidationError(null);
+                        }}
                         placeholder="e.g. SKH9203841"
                         maxLength={12}
                         className="w-full p-2.5 bg-zinc-950 border border-zinc-800 text-white font-mono uppercase tracking-widest text-sm focus:outline-none focus:border-orange-500"
                       />
+                      <p className="text-[11px] text-zinc-400 mt-1">
+                        Enter the 10-character confirmation code from your Safaricom M-Pesa SMS receipt.
+                      </p>
                     </div>
                   </div>
                 </div>

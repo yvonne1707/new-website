@@ -97,7 +97,7 @@ export interface Order {
   paymentMethodName?: string;
   mpesaReceipt?: string; // Transaction code / reference entered by customer
   paidFromPhone?: string; // Customer's phone if paid via Send Money
-  status: 'Payment Pending Verification' | 'Pending' | 'Confirmed' | 'Processing' | 'Dispatched' | 'Delivered' | 'Cancelled';
+  status: 'Payment Pending Verification' | 'Pending' | 'Confirmed' | 'Processing' | 'Dispatched' | 'Delivered' | 'Completed' | 'Cancelled';
   transportDetails?: TransportDetails;
   emailNotificationSent?: boolean;
   emailNotificationTimestamp?: string;

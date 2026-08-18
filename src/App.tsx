@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Product, CartItem, Order, VehicleSelection, BranchLocation, BusinessProfile, TransportDetails } from './types';
-import { INITIAL_PRODUCTS, INITIAL_ORDERS, INITIAL_BRANCHES, INITIAL_BUSINESS_PROFILE, BUSINESS_INFO } from './data/initialData';
+import { Product, CartItem, Order, VehicleSelection, BranchLocation, BusinessProfile, TransportDetails, PaymentSubmissionData } from './types';
+import { INITIAL_PRODUCTS, INITIAL_ORDERS, INITIAL_BRANCHES, INITIAL_BUSINESS_PROFILE } from './data/initialData';
 import { Header } from './components/Header';
 import { ProductCard } from './components/ProductCard';
 import { ProductDetailsModal } from './components/ProductDetailsModal';
 import { VehicleFilterModal } from './components/VehicleFilterModal';
 import { CartView } from './components/CartView';
-import { MpesaCheckoutModal } from './components/MpesaCheckoutModal';
+import { PaymentCheckoutModal } from './components/PaymentCheckoutModal';
 import { LocationsView } from './components/LocationsView';
 import { AdminPanel } from './components/AdminPanel';
 import { AiPartsAdvisor } from './components/AiPartsAdvisor';
@@ -26,7 +26,8 @@ import {
   Instagram,
   Share2,
   CheckCircle2,
-  Mail
+  Mail,
+  Check
 } from 'lucide-react';
 
 const CATEGORIES = [
@@ -78,7 +79,7 @@ export default function App() {
   const [inStockOnly, setInStockOnly] = useState(false);
 
   // Modals state
-  const [detailsProduct, setDetailsProduct] = useState<Product | null>(null);
+  const [detailsProductId, setDetailsProductId] = useState<string | null>(null);
   const [isCarSelectorOpen, setIsCarSelectorOpen] = useState(false);
   const [isMpesaModalOpen, setIsMpesaModalOpen] = useState(false);
   const [isAiAdvisorOpen, setIsAiAdvisorOpen] = useState(false);
@@ -90,7 +91,7 @@ export default function App() {
     customerName: string;
     customerPhone: string;
     customerEmail: string;
-    deliveryMethod: 'pickup_kirinyaga' | 'pickup_umoja' | 'nairobi_courier' | 'upcountry_parcel';
+    deliveryMethod: string;
     deliveryAddress: string;
     notes: string;
     subtotal: number;
@@ -118,6 +119,12 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('rissau_cart', JSON.stringify(cart));
   }, [cart]);
+
+  // Sync detailsProduct dynamically with products state
+  const detailsProduct = useMemo(() => {
+    if (!detailsProductId) return null;
+    return products.find((p) => p.id === detailsProductId) || null;
+  }, [products, detailsProductId]);
 
   // Cart operations
   const handleAddToCart = (product: Product) => {
@@ -160,7 +167,7 @@ export default function App() {
     setIsMpesaModalOpen(true);
   };
 
-  const handlePaymentSuccess = (mpesaReceipt: string, extraNotes?: string) => {
+  const handlePaymentSubmitted = (data: PaymentSubmissionData) => {
     if (!pendingCheckout) return;
 
     const newOrder: Order = {
@@ -176,20 +183,22 @@ export default function App() {
       total: pendingCheckout.total,
       deliveryMethod: pendingCheckout.deliveryMethod,
       deliveryAddress: pendingCheckout.deliveryAddress,
-      paymentMethod: 'mpesa_stk',
-      mpesaReceipt: mpesaReceipt,
-      status: 'Confirmed',
-      emailNotificationSent: true,
-      notes: extraNotes ? `${pendingCheckout.notes} | ${extraNotes}` : pendingCheckout.notes,
+      paymentMethod: data.paymentMethod as any,
+      paymentMethodName: data.paymentMethodName,
+      mpesaReceipt: data.transactionReference,
+      paidFromPhone: data.paidFromPhone,
+      status: 'Payment Pending Verification', // Moves to Payment Pending Verification per requirements!
+      emailNotificationSent: false,
+      notes: data.notes ? `${pendingCheckout.notes ? pendingCheckout.notes + ' | ' : ''}${data.notes}` : pendingCheckout.notes,
       transportDetails: {
         saccoOrCourier:
-          pendingCheckout.deliveryMethod === 'upcountry_parcel'
+          pendingCheckout.deliveryMethod.includes('upcountry')
             ? '2NK Sacco'
-            : pendingCheckout.deliveryMethod === 'nairobi_courier'
+            : pendingCheckout.deliveryMethod.includes('courier')
             ? 'Nairobi Boda Express'
             : 'Counter Self-Pickup',
         destinationStage: pendingCheckout.deliveryAddress || 'Branch Counter',
-        estimatedArrivalTime: 'Today at 4:30 PM',
+        estimatedArrivalTime: 'Awaiting Admin Verification',
         status: 'In Transit',
         dispatchedAt: new Date().toLocaleString(),
       }
@@ -197,16 +206,21 @@ export default function App() {
 
     setOrders((prev) => [newOrder, ...prev]);
     setCart([]);
-    setIsMpesaModalOpen(false);
 
-    // Open receipt modal automatically for the customer
-    setActiveReceiptOrder(newOrder);
-
-    // Show buyer email notification toast
+    // Show buyer toast
     if (newOrder.customerEmail) {
-      setEmailNotificationToast(`Official Receipt & M-Pesa confirmation sent to ${newOrder.customerEmail}`);
+      setEmailNotificationToast(`Payment details submitted for Order ${newOrder.orderNumber}. Confirmation email sent to ${newOrder.customerEmail}`);
       setTimeout(() => setEmailNotificationToast(null), 5000);
     }
+  };
+
+  const handlePaymentSuccess = (mpesaReceipt: string, extraNotes?: string) => {
+    handlePaymentSubmitted({
+      paymentMethod: 'mpesa_till',
+      paymentMethodName: 'M-Pesa Buy Goods Till',
+      transactionReference: mpesaReceipt,
+      notes: extraNotes,
+    });
   };
 
   // Inventory modifications by Admin
@@ -277,73 +291,56 @@ export default function App() {
 
   // Filter and sort products
   const filteredProducts = useMemo(() => {
-    return products.filter((p) => {
-      // Category filter
-      if (selectedCategory !== 'All Spares' && p.category !== selectedCategory) {
-        return false;
-      }
-
-      // Search Query filter (name, part number, brand, compatible car)
-      if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase();
-        const matchesName = p.name.toLowerCase().includes(q);
-        const matchesBrand = p.brand.toLowerCase().includes(q);
-        const matchesPartNo = p.partNumber?.toLowerCase().includes(q);
-        const matchesVehicles = p.compatibleVehicles.some((v) =>
-          v.toLowerCase().includes(q)
-        );
-        if (!matchesName && !matchesBrand && !matchesPartNo && !matchesVehicles) {
+    return products
+      .filter((p) => {
+        // Category filter
+        if (selectedCategory !== 'All Spares' && p.category !== selectedCategory) {
           return false;
         }
-      }
 
-      // Vehicle Filter
-      if (selectedVehicle) {
-        const makeMatch = p.compatibleVehicles.some((v) =>
-          v.toLowerCase().includes(selectedVehicle.make.toLowerCase())
-        );
-        const modelMatch = p.compatibleVehicles.some((v) =>
-          v.toLowerCase().includes(selectedVehicle.model.toLowerCase())
-        );
-        if (!makeMatch && !modelMatch) {
+        // Search Query filter (name, part number, brand, compatible car)
+        if (searchQuery.trim()) {
+          const q = searchQuery.toLowerCase();
+          const matchesName = p.name.toLowerCase().includes(q);
+          const matchesBrand = p.brand.toLowerCase().includes(q);
+          const matchesPartNo = p.partNumber?.toLowerCase().includes(q);
+          const matchesVehicles = p.compatibleVehicles.some((v) =>
+            v.toLowerCase().includes(q)
+          );
+          if (!matchesName && !matchesBrand && !matchesPartNo && !matchesVehicles) {
+            return false;
+          }
+        }
+
+        // Vehicle Filter
+        if (selectedVehicle) {
+          const modelMatch = p.compatibleVehicles.some(
+            (v) =>
+              v.toLowerCase().includes(selectedVehicle.make.toLowerCase()) ||
+              v.toLowerCase().includes(selectedVehicle.model.toLowerCase())
+          );
+          if (!modelMatch) return false;
+        }
+
+        // In-stock filter
+        if (inStockOnly && p.stock <= 0) {
           return false;
         }
-      }
 
-      // In-stock only
-      if (inStockOnly && p.stock <= 0) {
-        return false;
-      }
-
-      return true;
-    }).sort((a, b) => {
-      if (sortBy === 'price_low') return a.price - b.price;
-      if (sortBy === 'price_high') return b.price - a.price;
-      return 0; // featured
-    });
+        return true;
+      })
+      .sort((a, b) => {
+        if (sortBy === 'price_low') return a.price - b.price;
+        if (sortBy === 'price_high') return b.price - a.price;
+        return 0; // featured default
+      });
   }, [products, selectedCategory, searchQuery, selectedVehicle, inStockOnly, sortBy]);
 
   const totalCartCount = cart.reduce((sum, item) => sum + item.quantity, 0);
 
   return (
-    <div className="min-h-screen bg-[#0a0a0a] text-white font-sans flex flex-col antialiased pb-20 md:pb-0 selection:bg-orange-500 selection:text-black">
-      {/* Email Toast Banner */}
-      {emailNotificationToast && (
-        <div className="fixed top-4 right-4 z-50 bg-emerald-900 border-2 border-emerald-400 text-white p-4 shadow-2xl flex items-center gap-3 animate-fadeIn">
-          <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
-          <div className="text-xs font-black uppercase tracking-wider">
-            {emailNotificationToast}
-          </div>
-          <button
-            onClick={() => setEmailNotificationToast(null)}
-            className="text-zinc-400 hover:text-white ml-2"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-      )}
-
-      {/* Global Header */}
+    <div className="min-h-screen bg-[#0a0a0a] text-white flex flex-col font-sans selection:bg-orange-500 selection:text-black">
+      {/* Top Header */}
       <Header
         cartCount={totalCartCount}
         onOpenCart={() => setActiveTab('cart')}
@@ -352,112 +349,108 @@ export default function App() {
         selectedVehicle={selectedVehicle}
         activeTab={activeTab}
         setActiveTab={setActiveTab}
+        businessProfile={businessProfile}
+        branches={branches}
       />
 
-      {/* Main Content View */}
-      <main className="flex-1">
+      {/* Global Email Notification Banner */}
+      {emailNotificationToast && (
+        <div className="fixed top-20 right-4 z-50 bg-emerald-600 text-white font-bold p-4 border border-emerald-400 shadow-2xl flex items-center gap-3 animate-fadeIn text-xs max-w-md">
+          <Mail className="w-5 h-5 shrink-0" />
+          <div className="flex-1">{emailNotificationToast}</div>
+          <button
+            onClick={() => setEmailNotificationToast(null)}
+            className="text-white hover:text-black"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
+      {/* Main View Router */}
+      <main className="flex-1 pb-20 md:pb-8">
+        {/* Tab: Shop / Catalog */}
         {activeTab === 'shop' && (
-          <div>
-            {/* Bold Hero Header */}
-            <div className="bg-[#0a0a0a] px-4 py-10 sm:py-14 border-b border-zinc-800 relative overflow-hidden">
-              <div className="max-w-7xl mx-auto">
-                <div className="flex flex-col lg:flex-row justify-between items-start lg:items-end gap-8">
-                  {/* Giant Hero Title & Tagline */}
-                  <div>
-                    <h1 className="text-[56px] sm:text-[90px] lg:text-[120px] font-black leading-[0.85] tracking-tighter uppercase m-0 font-display text-white">
-                      RISSAU<br />
-                      <span className="text-white hover:text-orange-500 transition-colors">AUTO</span>
-                    </h1>
-                    <p className="text-orange-500 font-bold tracking-[0.3em] uppercase mt-4 text-xs sm:text-sm">
-                      {businessProfile.tagline} • Serving Kenya Since 2020
-                    </p>
-                  </div>
+          <div className="max-w-7xl mx-auto px-4 py-6 sm:py-8 space-y-8 animate-fadeIn">
+            {/* Bold Typographic Hero Banner */}
+            <div className="relative bg-[#111111] p-6 sm:p-10 border border-zinc-800 overflow-hidden">
+              <div className="absolute right-0 top-0 bottom-0 w-1/3 bg-radial from-orange-500/10 to-transparent pointer-events-none"></div>
 
-                  {/* Right Status Block */}
-                  <div className="flex flex-col items-start lg:items-end gap-4 w-full lg:w-auto">
-                    <div className="flex flex-wrap items-center gap-3">
-                      <div className="bg-orange-500 text-black px-4 py-2 font-black text-sm sm:text-base flex items-center gap-2">
-                        <span className="w-2.5 h-2.5 bg-black rounded-full animate-ping"></span>
-                        ONLINE IN {branches.map((b) => b.shortName.toUpperCase()).join(' & ')}
-                      </div>
+              <div className="relative z-10 max-w-3xl space-y-4">
+                <div className="inline-flex items-center gap-2 px-3 py-1 bg-orange-500/10 border border-orange-500/30 text-orange-400 text-xs font-black uppercase tracking-wider">
+                  <ShieldCheck className="w-4 h-4 text-orange-500" />
+                  <span>Kenya's Direct Heavy &amp; Light Commercial Auto Spares</span>
+                </div>
 
-                      <div className="border border-zinc-800 bg-[#111] px-4 py-2 text-left lg:text-right">
-                        <p className="text-zinc-500 uppercase text-[9px] font-black tracking-widest">Cart Status</p>
-                        <p className="text-xl sm:text-2xl font-black italic text-orange-500">
-                          {totalCartCount < 10 ? `0${totalCartCount}` : totalCartCount} ITEMS
-                        </p>
-                      </div>
-                    </div>
+                <h1 className="text-3xl sm:text-5xl lg:text-6xl font-black uppercase font-display tracking-tight text-white leading-none">
+                  Genuine Parts. <br className="hidden sm:inline" />
+                  <span className="text-orange-500">Unbeatable</span> Kenyan Prices.
+                </h1>
 
-                    {/* Quick vehicle & AI action buttons */}
-                    <div className="flex flex-wrap items-center gap-2 pt-2">
-                      <button
-                        onClick={() => setIsCarSelectorOpen(true)}
-                        className="px-4 py-3 bg-[#161616] hover:bg-zinc-800 text-white font-black text-xs uppercase tracking-wider border border-zinc-700 flex items-center gap-2 transition-all cursor-pointer"
-                      >
-                        <Car className="w-4 h-4 text-orange-500" />
-                        <span>
-                          {selectedVehicle
-                            ? `Matched: ${selectedVehicle.make} ${selectedVehicle.model}`
-                            : 'Match Parts to Car'}
-                        </span>
-                      </button>
+                <p className="text-xs sm:text-sm text-zinc-400 max-w-xl font-bold uppercase tracking-wider leading-relaxed">
+                  Specialized in premium all-terrain tires, gearbox &amp; engine gaskets, high-performance Castrol oils, suspension &amp; brakes.
+                </p>
 
-                      <button
-                        onClick={() => setIsAiAdvisorOpen(true)}
-                        className="px-4 py-3 bg-white hover:bg-orange-500 text-black font-black text-xs uppercase tracking-tighter flex items-center gap-2 transition-all cursor-pointer"
-                      >
-                        <Sparkles className="w-4 h-4" />
-                        <span>Ask AI Specialist</span>
-                      </button>
+                {/* Quick actions in hero */}
+                <div className="flex flex-wrap items-center gap-3 pt-2">
+                  <button
+                    onClick={() => setIsCarSelectorOpen(true)}
+                    className="px-5 py-3 bg-white hover:bg-orange-500 text-black font-black uppercase tracking-tighter text-xs flex items-center gap-2 transition-colors cursor-pointer"
+                  >
+                    <Car className="w-4 h-4" />
+                    <span>{selectedVehicle ? `Selected: ${selectedVehicle.model}` : 'Filter by My Car Model'}</span>
+                  </button>
 
-                      <a
-                        href={`https://wa.me/${businessProfile.whatsapp}?text=Hello%20Rissau%20Auto%20Agency`}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="px-4 py-3 bg-zinc-900 hover:bg-zinc-800 text-emerald-400 font-black text-xs uppercase tracking-wider border border-zinc-800 flex items-center gap-2 transition-colors"
-                      >
-                        <MessageSquare className="w-4 h-4" />
-                        <span>WhatsApp ({businessProfile.phones[0]})</span>
-                      </a>
-                    </div>
-                  </div>
+                  <button
+                    onClick={() => setIsAiAdvisorOpen(true)}
+                    className="px-5 py-3 bg-zinc-900 hover:bg-zinc-800 text-orange-400 font-black uppercase tracking-wider text-xs border border-zinc-800 flex items-center gap-2 transition-colors cursor-pointer"
+                  >
+                    <Sparkles className="w-4 h-4 text-orange-500" />
+                    <span>Ask AI Parts Specialist</span>
+                  </button>
                 </div>
               </div>
             </div>
 
-            {/* Catalog Filter Controls & Search */}
-            <div className="max-w-7xl mx-auto px-4 py-6 space-y-6">
-              {/* Active Vehicle Filter Banner */}
-              {selectedVehicle && (
-                <div className="p-4 bg-orange-500/15 border border-orange-500 flex items-center justify-between text-xs sm:text-sm">
-                  <div className="flex items-center gap-2 font-black uppercase tracking-wider text-orange-400">
-                    <Car className="w-4 h-4 text-orange-500" />
-                    <span>
-                      Filtered for: <strong className="text-white">{selectedVehicle.make} {selectedVehicle.model}</strong>
+            {/* Car Matching Active Bar */}
+            {selectedVehicle && (
+              <div className="p-4 bg-orange-500/10 border border-orange-500/30 flex items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 bg-orange-500 text-black flex items-center justify-center font-black">
+                    <Car className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <span className="text-[10px] font-black uppercase tracking-widest text-orange-400 block">
+                      Active Vehicle Fitment
+                    </span>
+                    <span className="text-sm font-black uppercase text-white">
+                      {selectedVehicle.year} {selectedVehicle.make} {selectedVehicle.model} {selectedVehicle.engine ? `(${selectedVehicle.engine})` : ''}
                     </span>
                   </div>
-                  <button
-                    onClick={() => setSelectedVehicle(null)}
-                    className="text-xs font-black uppercase tracking-wider text-black bg-white hover:bg-orange-500 px-3 py-1.5 flex items-center gap-1 cursor-pointer transition-colors"
-                  >
-                    <X className="w-3.5 h-3.5" />
-                    <span>Clear Filter</span>
-                  </button>
                 </div>
-              )}
 
-              {/* Search & Sort Row */}
-              <div className="bg-[#111] p-4 sm:p-5 border border-zinc-800 flex flex-col md:flex-row gap-4 items-center justify-between">
-                {/* Search Bar */}
-                <div className="relative w-full md:w-96">
+                <button
+                  onClick={() => setSelectedVehicle(null)}
+                  className="text-xs font-black uppercase tracking-wider text-zinc-400 hover:text-white flex items-center gap-1 cursor-pointer"
+                >
+                  <X className="w-3.5 h-3.5" />
+                  <span>Clear Filter</span>
+                </button>
+              </div>
+            )}
+
+            {/* Search & Category Filter Section */}
+            <div className="space-y-4">
+              {/* Search bar & Quick controls */}
+              <div className="flex flex-col sm:flex-row gap-3">
+                <div className="relative flex-1">
                   <Search className="w-4 h-4 text-zinc-500 absolute left-4 top-1/2 -translate-y-1/2" />
                   <input
                     type="text"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Search by part name, OEM number, brand, vehicle..."
-                    className="w-full pl-11 pr-10 py-3 bg-[#0a0a0a] border border-zinc-800 text-white placeholder:text-zinc-600 text-xs font-bold focus:outline-none focus:border-orange-500 uppercase tracking-wider"
+                    placeholder="Search by part name (e.g. Michelin 265/65R17, Hilux Gasket, Castrol 15W-40, Brake Pads)..."
+                    className="w-full pl-11 pr-4 py-3.5 bg-[#111] border border-zinc-800 text-white placeholder:text-zinc-600 text-xs sm:text-sm font-bold focus:outline-none focus:border-orange-500"
                   />
                   {searchQuery && (
                     <button
@@ -469,32 +462,29 @@ export default function App() {
                   )}
                 </div>
 
-                {/* Filters & Sorting */}
-                <div className="flex flex-wrap items-center gap-4 w-full md:w-auto justify-between md:justify-end text-xs font-bold">
-                  <label className="flex items-center gap-2 uppercase tracking-wider text-zinc-400 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={inStockOnly}
-                      onChange={(e) => setInStockOnly(e.target.checked)}
-                      className="accent-orange-500"
-                    />
-                    <span>In Stock Only</span>
-                  </label>
+                {/* Sort & In-stock toggle */}
+                <div className="flex items-center gap-2">
+                  <select
+                    value={sortBy}
+                    onChange={(e: any) => setSortBy(e.target.value)}
+                    className="px-3 py-3.5 bg-[#111] border border-zinc-800 text-white font-bold text-xs uppercase focus:outline-none focus:border-orange-500"
+                  >
+                    <option value="featured">Featured Spares</option>
+                    <option value="price_low">Price: Low to High</option>
+                    <option value="price_high">Price: High to Low</option>
+                  </select>
 
-                  <div className="flex items-center gap-2">
-                    <span className="text-zinc-500 uppercase tracking-widest text-[10px] hidden sm:inline">
-                      Sort:
-                    </span>
-                    <select
-                      value={sortBy}
-                      onChange={(e) => setSortBy(e.target.value as any)}
-                      className="px-3 py-2.5 bg-[#0a0a0a] border border-zinc-800 text-white font-black uppercase text-xs focus:outline-none focus:border-orange-500"
-                    >
-                      <option value="featured">Featured Spares</option>
-                      <option value="price_low">Price: Low to High</option>
-                      <option value="price_high">Price: High to Low</option>
-                    </select>
-                  </div>
+                  <button
+                    onClick={() => setInStockOnly(!inStockOnly)}
+                    className={`px-4 py-3.5 text-xs font-black uppercase tracking-wider border transition-colors cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
+                      inStockOnly
+                        ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/50'
+                        : 'bg-[#111] text-zinc-400 border-zinc-800 hover:text-white'
+                    }`}
+                  >
+                    <span>In Stock Only</span>
+                    {inStockOnly && <Check className="w-3.5 h-3.5" />}
+                  </button>
                 </div>
               </div>
 
@@ -551,7 +541,7 @@ export default function App() {
                     </button>
                     <a
                       href={`https://wa.me/${businessProfile.whatsapp}?text=${encodeURIComponent(
-                        `Hello Rissau Auto, I am looking for: ${searchQuery}`
+                        `Hello ${businessProfile.name}, I am looking for: ${searchQuery}`
                       )}`}
                       target="_blank"
                       rel="noreferrer"
@@ -570,7 +560,7 @@ export default function App() {
                       product={product}
                       index={idx}
                       onAddToCart={handleAddToCart}
-                      onViewDetails={(p) => setDetailsProduct(p)}
+                      onViewDetails={(p) => setDetailsProductId(p.id)}
                       isInCart={cart.some((i) => i.product.id === product.id)}
                     />
                   ))}
@@ -589,6 +579,8 @@ export default function App() {
         {activeTab === 'cart' && (
           <CartView
             cart={cart}
+            businessProfile={businessProfile}
+            branches={branches}
             onUpdateQuantity={handleUpdateQuantity}
             onRemoveItem={handleRemoveFromCart}
             onClearCart={handleClearCart}
@@ -614,6 +606,7 @@ export default function App() {
             onUpdateBranch={handleUpdateBranch}
             onDeleteBranch={handleDeleteBranch}
             onUpdateBusinessProfile={handleUpdateBusinessProfile}
+            onNavigateToShop={() => setActiveTab('shop')}
           />
         )}
       </main>
@@ -697,7 +690,8 @@ export default function App() {
       {/* Modals */}
       <ProductDetailsModal
         product={detailsProduct}
-        onClose={() => setDetailsProduct(null)}
+        businessProfile={businessProfile}
+        onClose={() => setDetailsProductId(null)}
         onAddToCart={handleAddToCart}
         isInCart={detailsProduct ? cart.some((i) => i.product.id === detailsProduct.id) : false}
       />
@@ -709,12 +703,14 @@ export default function App() {
         onSelectVehicle={(veh) => setSelectedVehicle(veh)}
       />
 
-      <MpesaCheckoutModal
+      <PaymentCheckoutModal
         isOpen={isMpesaModalOpen}
         onClose={() => setIsMpesaModalOpen(false)}
         totalAmount={pendingCheckout?.total || 0}
         customerPhone={pendingCheckout?.customerPhone || ''}
         customerName={pendingCheckout?.customerName || ''}
+        businessProfile={businessProfile}
+        onPaymentSubmitted={handlePaymentSubmitted}
         onPaymentSuccess={handlePaymentSuccess}
       />
 
@@ -722,6 +718,8 @@ export default function App() {
         isOpen={isAiAdvisorOpen}
         onClose={() => setIsAiAdvisorOpen(false)}
         selectedVehicle={selectedVehicle}
+        businessProfile={businessProfile}
+        branches={branches}
       />
 
       {/* Customer Receipt Modal */}

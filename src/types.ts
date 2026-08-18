@@ -51,6 +51,35 @@ export interface TransportDetails {
   status: 'Awaiting Dispatch' | 'In Transit' | 'Ready for Collection at Stage' | 'Delivered';
 }
 
+export type PaymentMethodType = 'send_money' | 'paybill' | 'till_number' | 'bank_transfer';
+
+export interface PaymentMethodItem {
+  id: string;
+  type: PaymentMethodType;
+  name: string; // e.g. "M-Pesa Send Money", "M-Pesa Paybill", "M-Pesa Buy Goods Till", "KCB Bank Transfer"
+  isActive: boolean;
+  description?: string;
+  // Specific fields:
+  phoneNumber?: string; // for Send Money (seller's phone)
+  recipientName?: string; // for Send Money & Bank Account Name
+  paybillNumber?: string; // for Paybill
+  accountNumber?: string; // for Paybill & Bank
+  accountName?: string; // for Bank & Paybill
+  tillNumber?: string; // for Till
+  tillName?: string; // for Till
+  bankName?: string; // for Bank Transfer
+  branchName?: string; // for Bank Transfer
+  instructions?: string; // Optional custom instructions
+}
+
+export interface PaymentSubmissionData {
+  paymentMethod: PaymentMethodType | string;
+  paymentMethodName: string;
+  transactionReference?: string;
+  paidFromPhone?: string;
+  notes?: string;
+}
+
 export interface Order {
   id: string;
   orderNumber: string;
@@ -62,11 +91,13 @@ export interface Order {
   subtotal: number;
   deliveryFee: number;
   total: number;
-  deliveryMethod: 'pickup_kirinyaga' | 'pickup_umoja' | 'nairobi_courier' | 'upcountry_parcel';
+  deliveryMethod: 'pickup_kirinyaga' | 'pickup_umoja' | 'nairobi_courier' | 'upcountry_parcel' | string;
   deliveryAddress?: string;
-  paymentMethod: 'mpesa_stk' | 'mpesa_manual' | 'cash_on_delivery' | 'whatsapp';
-  mpesaReceipt?: string;
-  status: 'Pending' | 'Confirmed' | 'Processing' | 'Dispatched' | 'Delivered' | 'Cancelled';
+  paymentMethod: PaymentMethodType | 'mpesa_stk' | 'mpesa_manual' | 'cash_on_delivery' | string;
+  paymentMethodName?: string;
+  mpesaReceipt?: string; // Transaction code / reference entered by customer
+  paidFromPhone?: string; // Customer's phone if paid via Send Money
+  status: 'Payment Pending Verification' | 'Pending' | 'Confirmed' | 'Processing' | 'Dispatched' | 'Delivered' | 'Cancelled';
   transportDetails?: TransportDetails;
   emailNotificationSent?: boolean;
   emailNotificationTimestamp?: string;
@@ -77,11 +108,20 @@ export interface BusinessProfile {
   name: string;
   tagline: string;
   subTagline: string;
+  profilePicture?: string; // Admin / Business owner profile photo displayed on storefront
   phones: string[];
   emails: string[];
   whatsapp: string;
   tillNumber: string;
   paybillNumber?: string;
+  paybillAccount?: string;
+  sendMoneyPhone?: string;
+  sendMoneyName?: string;
+  bankName?: string;
+  bankAccountName?: string;
+  bankAccountNumber?: string;
+  bankBranch?: string;
+  paymentMethods?: PaymentMethodItem[];
   instagram: string;
   tiktok: string;
   adminPin: string;

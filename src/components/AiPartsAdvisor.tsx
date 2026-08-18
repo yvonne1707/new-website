@@ -1,32 +1,37 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { ChatMessage, VehicleSelection } from '../types';
+import { ChatMessage, VehicleSelection, BusinessProfile, BranchLocation } from '../types';
 import { Sparkles, X, Send, Bot, User, MessageSquare, Phone, RefreshCw, Car } from 'lucide-react';
-import { BUSINESS_INFO } from '../data/initialData';
 
 interface AiPartsAdvisorProps {
   isOpen: boolean;
   onClose: () => void;
   selectedVehicle: VehicleSelection | null;
+  businessProfile: BusinessProfile;
+  branches: BranchLocation[];
 }
 
 const QUICK_PROMPTS = [
   "Which oil is best for Toyota Hilux / Prado in Kenya?",
   "Tire size recommendation for off-road 4x4",
-  "Is the Toyota Hilux Gearbox Gasket in stock at Kirinyaga Rd?",
+  "Is the Toyota Hilux Gearbox Gasket in stock?",
   "How to tell if shock absorbers or ball joints are worn?",
-  "Do you deliver upcountry to Kisumu / Mombasa / Nakuru?",
+  "Do you deliver upcountry via 2NK / Guardian / EasyCoach?",
 ];
 
 export const AiPartsAdvisor: React.FC<AiPartsAdvisorProps> = ({
   isOpen,
   onClose,
   selectedVehicle,
+  businessProfile,
+  branches,
 }) => {
+  const branchSummary = branches.map((b) => b.shortName).join(' & ') || 'Nairobi Hubs';
+
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: 'welcome',
       role: 'assistant',
-      content: `Hello! I am your **Rissau Auto Agency** Parts Specialist 🛠️\n\nI can help you find exact genuine replacement parts, recommend the correct oil grade (e.g. 5W-30 vs 20W-50), check tire sizes, advise on gearbox gaskets, and give store details for our **Kirinyaga Road** & **Umoja** branches.\n\nHow can I help your vehicle today?`,
+      content: `Hello! I am your **${businessProfile.name}** Parts Specialist 🛠️\n\nI can help you find exact genuine replacement parts, recommend the correct oil grade (e.g. 5W-30 vs 20W-50), check tire sizes, advise on gearbox gaskets, and give store details for our **${branchSummary}** branches.\n\nHow can I help your vehicle today?`,
       timestamp: 'Just now',
     },
   ]);
@@ -59,108 +64,136 @@ export const AiPartsAdvisor: React.FC<AiPartsAdvisorProps> = ({
     try {
       const response = await fetch('/api/chat', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+        },
         body: JSON.stringify({
-          messages: newMessages.map((m) => ({ role: m.role, content: m.content })),
-          userCar: selectedVehicle ? `${selectedVehicle.make} ${selectedVehicle.model}` : null,
+          message: query,
+          vehicleContext: selectedVehicle
+            ? `${selectedVehicle.make} ${selectedVehicle.model} (${selectedVehicle.engine || 'Standard'})`
+            : undefined,
+          businessProfile: {
+            name: businessProfile.name,
+            branches: branches.map((b) => `${b.name} (${b.address})`),
+            phones: businessProfile.phones,
+            whatsapp: businessProfile.whatsapp,
+          },
         }),
       });
+
+      if (!response.ok) {
+        throw new Error('Network response was not ok');
+      }
 
       const data = await response.json();
       const botMsg: ChatMessage = {
         id: `bot-${Date.now()}`,
         role: 'assistant',
-        content: data.reply || "I'm happy to help. For immediate order confirmation or special quotes, you can also contact our parts counter at 0728090599.",
+        content: data.reply || "I'm ready to assist with your auto parts query.",
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       };
       setMessages([...newMessages, botMsg]);
     } catch (err) {
-      console.error(err);
-      const fallbackBotMsg: ChatMessage = {
-        id: `bot-${Date.now()}`,
-        role: 'assistant',
-        content: `Thank you for your question. We stock genuine tires, gearbox gaskets, oils, and suspension parts at our **Kirinyaga Road (CBD)** and **Umoja (Kangundo Road)** branches. Please call or WhatsApp us on **${BUSINESS_INFO.phones[0]}** for instant confirmation!`,
-        timestamp: 'Just now',
+      // Fallback local expert guidance
+      const fallbackReplies: Record<string, string> = {
+        oil: `For Kenyan driving conditions (dust, heavy traffic, variable temperatures), we recommend **Castrol GTX Diesel 15W-40** or **Castrol Magnatec 5W-30 Synthetic** for modern common-rail engines. Available at ${branchSummary}.`,
+        tire: `For rough road and off-road reliability, the **Michelin LTX Force 265/65R17** or **Dunlop Grandtrek AT3G** offer superior puncture resistance. In stock with free fitting at our Umoja branch!`,
+        gasket: `We stock OEM **Toyota, Isuzu & Nissan Gearbox & Cylinder Head Gaskets**. All made from high-temperature graphite/multi-layer steel to withstand high pressure.`,
+        sacco: `Yes! We dispatch countrywide daily via trusted matatu Saccos (2NK, Transline, EasyCoach, Guardian, Mololine) and Nairobi courier boda-boda.`,
       };
-      setMessages([...newMessages, fallbackBotMsg]);
+
+      const lower = query.toLowerCase();
+      let matchedKey = 'oil';
+      if (lower.includes('tire') || lower.includes('tyre')) matchedKey = 'tire';
+      else if (lower.includes('gasket') || lower.includes('gearbox')) matchedKey = 'gasket';
+      else if (lower.includes('deliver') || lower.includes('sacco') || lower.includes('transport') || lower.includes('town')) matchedKey = 'sacco';
+
+      const fallbackMsg: ChatMessage = {
+        id: `bot-fb-${Date.now()}`,
+        role: 'assistant',
+        content: `${fallbackReplies[matchedKey]}\n\nFor instant stock reservation, contact our counter desk at **${businessProfile.phones[0]}** or chat on WhatsApp (+${businessProfile.whatsapp}).`,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      };
+      setMessages([...newMessages, fallbackMsg]);
     } finally {
       setIsLoading(false);
     }
   };
 
-  if (!isOpen) return null;
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-end p-2 sm:p-4 bg-black/85 backdrop-blur-sm animate-fadeIn text-white">
-      <div className="relative w-full max-w-lg h-[92vh] sm:h-[88vh] bg-[#111] border border-zinc-800 shadow-2xl flex flex-col overflow-hidden">
+    <div className={`fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-sm transition-opacity ${isOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
+      <div 
+        id="ai-advisor-modal"
+        className="relative bg-[#111111] text-white w-full max-w-2xl h-[85vh] flex flex-col border border-zinc-800 shadow-2xl overflow-hidden"
+      >
         {/* Header */}
-        <div className="bg-[#050505] p-5 flex items-center justify-between border-b border-zinc-800">
+        <div className="bg-[#050505] p-4 sm:p-5 border-b border-zinc-800 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-orange-500 text-black flex items-center justify-center font-black">
               <Sparkles className="w-5 h-5" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h3 className="font-black uppercase font-display text-base text-white">
-                  AI Auto Parts Advisor
+                <h3 className="text-lg sm:text-xl font-black uppercase font-display text-white">
+                  AI Parts Specialist
                 </h3>
-                <span className="px-1.5 py-0.5 text-[9px] font-black uppercase bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-                  ONLINE
+                <span className="bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[10px] font-black uppercase px-2 py-0.5">
+                  Live
                 </span>
               </div>
-              <p className="text-[10px] uppercase tracking-wider text-zinc-400">
-                Rissau Auto Agency • Expert Spares Guide
+              <p className="text-[11px] text-zinc-400 font-bold uppercase tracking-wider">
+                {businessProfile.name} • {branchSummary}
               </p>
             </div>
           </div>
+
           <button
             onClick={onClose}
-            className="w-8 h-8 bg-zinc-900 text-zinc-400 hover:text-white flex items-center justify-center border border-zinc-800 cursor-pointer"
+            className="w-9 h-9 bg-zinc-900 hover:bg-zinc-800 text-zinc-400 flex items-center justify-center border border-zinc-800 cursor-pointer"
+            aria-label="Close Advisor"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
 
-        {/* Selected Vehicle Context Bar */}
+        {/* Selected Car Notice */}
         {selectedVehicle && (
-          <div className="bg-orange-500/10 px-4 py-2 border-b border-orange-500/20 flex items-center justify-between text-xs text-orange-400 font-bold uppercase tracking-wider">
-            <span className="flex items-center gap-1.5">
+          <div className="bg-orange-500/15 border-b border-orange-500/30 px-4 py-2 flex items-center justify-between text-xs">
+            <div className="flex items-center gap-2 text-orange-400 font-bold uppercase tracking-wider">
               <Car className="w-3.5 h-3.5 text-orange-500" />
-              Tailoring advice for: <strong className="text-white">{selectedVehicle.make} {selectedVehicle.model}</strong>
-            </span>
+              <span>Active Context: <strong className="text-white">{selectedVehicle.make} {selectedVehicle.model}</strong></span>
+            </div>
           </div>
         )}
 
-        {/* Messages Scroll Area */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-3.5 bg-[#0a0a0a]">
+        {/* Chat History */}
+        <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 font-sans text-xs sm:text-sm">
           {messages.map((msg) => (
             <div
               key={msg.id}
-              className={`flex gap-2.5 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+              className={`flex gap-3 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
             >
               {msg.role === 'assistant' && (
-                <div className="w-7 h-7 bg-orange-500 text-black flex items-center justify-center shrink-0 mt-1 font-black">
+                <div className="w-8 h-8 bg-orange-500 text-black flex items-center justify-center shrink-0 font-bold mt-1">
                   <Bot className="w-4 h-4" />
                 </div>
               )}
+
               <div
-                className={`max-w-[85%] p-4 text-xs sm:text-sm leading-relaxed border ${
+                className={`max-w-[85%] sm:max-w-[75%] p-4 border leading-relaxed ${
                   msg.role === 'user'
-                    ? 'bg-white text-black border-white font-medium'
-                    : 'bg-[#161616] text-zinc-200 border-zinc-800'
+                    ? 'bg-zinc-800 border-zinc-700 text-white'
+                    : 'bg-[#161616] border-zinc-800 text-zinc-200'
                 }`}
               >
                 <div className="whitespace-pre-wrap">{msg.content}</div>
-                <span
-                  className={`text-[10px] uppercase tracking-wider block mt-2 font-bold ${
-                    msg.role === 'user' ? 'text-zinc-500 text-right' : 'text-zinc-500'
-                  }`}
-                >
+                <span className="text-[10px] text-zinc-500 font-mono block mt-2 text-right">
                   {msg.timestamp}
                 </span>
               </div>
+
               {msg.role === 'user' && (
-                <div className="w-7 h-7 bg-zinc-800 text-white flex items-center justify-center shrink-0 mt-1 font-black">
+                <div className="w-8 h-8 bg-zinc-700 text-white flex items-center justify-center shrink-0 font-bold mt-1">
                   <User className="w-4 h-4" />
                 </div>
               )}
@@ -168,69 +201,55 @@ export const AiPartsAdvisor: React.FC<AiPartsAdvisorProps> = ({
           ))}
 
           {isLoading && (
-            <div className="flex gap-2.5 items-center text-xs text-zinc-400 bg-[#161616] p-3 border border-zinc-800 w-fit">
-              <div className="flex gap-1 items-center">
-                <span className="w-2 h-2 bg-orange-500 rounded-full animate-bounce"></span>
-                <span className="w-2 h-2 bg-orange-500 rounded-full animate-bounce [animation-delay:0.2s]"></span>
-                <span className="w-2 h-2 bg-orange-500 rounded-full animate-bounce [animation-delay:0.4s]"></span>
+            <div className="flex gap-3 justify-start items-center text-zinc-400 text-xs">
+              <div className="w-8 h-8 bg-orange-500 text-black flex items-center justify-center">
+                <RefreshCw className="w-4 h-4 animate-spin" />
               </div>
-              <span>Checking Rissau parts catalog &amp; fitment data...</span>
+              <span>Searching spare parts catalog &amp; fitment database...</span>
             </div>
           )}
+
           <div ref={messagesEndRef} />
         </div>
 
         {/* Quick Suggestion Chips */}
-        <div className="p-2.5 bg-[#050505] border-t border-zinc-800 flex gap-1.5 overflow-x-auto no-scrollbar">
+        <div className="bg-[#0c0c0c] px-4 py-2 border-t border-zinc-800 flex gap-2 overflow-x-auto no-scrollbar">
           {QUICK_PROMPTS.map((prompt, idx) => (
             <button
               key={idx}
               onClick={() => handleSendMessage(prompt)}
-              className="text-[10px] font-black uppercase tracking-wider bg-zinc-900 hover:bg-zinc-800 text-zinc-300 px-3 py-1.5 border border-zinc-800 whitespace-nowrap transition-colors shrink-0 cursor-pointer"
+              className="text-[11px] font-bold uppercase tracking-wider whitespace-nowrap bg-zinc-900 hover:bg-orange-500 hover:text-black text-zinc-400 px-3 py-1.5 border border-zinc-800 transition-colors cursor-pointer"
             >
               {prompt}
             </button>
           ))}
         </div>
 
-        {/* Input bar */}
-        <div className="p-3 bg-[#111] border-t border-zinc-800">
+        {/* Input Bar */}
+        <div className="p-4 bg-[#050505] border-t border-zinc-800">
           <form
             onSubmit={(e) => {
               e.preventDefault();
               handleSendMessage();
             }}
-            className="flex items-center gap-2"
+            className="flex gap-2"
           >
             <input
               type="text"
               value={inputPrompt}
               onChange={(e) => setInputPrompt(e.target.value)}
-              placeholder="Ask about parts, oil grade, tire sizes, prices..."
-              className="flex-1 px-4 py-3 text-xs sm:text-sm bg-zinc-900 border border-zinc-800 text-white placeholder:text-zinc-600 focus:outline-none focus:border-orange-500"
+              placeholder="Ask about part numbers, tire sizes, oil grades, prices..."
+              className="flex-1 px-4 py-3 bg-[#111] border border-zinc-800 text-white text-xs sm:text-sm placeholder:text-zinc-600 focus:outline-none focus:border-orange-500"
             />
             <button
               type="submit"
               disabled={isLoading || !inputPrompt.trim()}
-              className="p-3 bg-orange-500 hover:bg-orange-400 disabled:opacity-40 text-black font-black uppercase transition-colors cursor-pointer"
+              className="px-6 py-3 bg-orange-500 hover:bg-orange-400 disabled:opacity-50 text-black font-black uppercase text-xs flex items-center gap-1.5 transition-colors cursor-pointer"
             >
-              <Send className="w-4 h-4" />
+              <span>Send</span>
+              <Send className="w-3.5 h-3.5" />
             </button>
           </form>
-
-          {/* Quick Counter Contact Link */}
-          <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-wider text-zinc-500 mt-2 px-1">
-            <span>Direct Counter Hotline:</span>
-            <a
-              href={`https://wa.me/${BUSINESS_INFO.whatsapp}?text=Hello%20Rissau%20Auto,%20I%20am%20chatting%20with%20your%20AI%20and%20need%20human%20assistance.`}
-              target="_blank"
-              rel="noreferrer"
-              className="text-emerald-400 hover:underline flex items-center gap-1"
-            >
-              <MessageSquare className="w-3 h-3" />
-              WhatsApp Specialist ({BUSINESS_INFO.phones[0]})
-            </a>
-          </div>
         </div>
       </div>
     </div>

@@ -1,12 +1,14 @@
-import React, { useState, useRef } from 'react';
-import { Product, Order, BranchLocation, BusinessProfile, TransportDetails } from '../types';
+import React, { useState, useRef, useEffect } from 'react';
+import { Product, Order, BranchLocation, BusinessProfile, TransportDetails, PaymentMethodItem } from '../types';
 import { 
   Lock, Plus, Trash2, Edit, CheckCircle, Clock, Package, DollarSign, 
   Smartphone, Search, RefreshCw, X, ShieldAlert, Eye, EyeOff, Camera, 
   Upload, Printer, Mail, Truck, MapPin, Compass, Globe, Instagram, 
-  Send, Phone, Check, AlertCircle, Share2
+  Send, Phone, Check, AlertCircle, Share2, ExternalLink, Building2,
+  CreditCard, Hash, UserCheck, Copy, Image
 } from 'lucide-react';
 import { ReceiptModal } from './ReceiptModal';
+import { PaymentSettingsTab } from './PaymentSettingsTab';
 
 interface AdminPanelProps {
   products: Product[];
@@ -23,6 +25,7 @@ interface AdminPanelProps {
   onUpdateBranch: (branch: BranchLocation) => void;
   onDeleteBranch: (branchId: string) => void;
   onUpdateBusinessProfile: (profile: BusinessProfile) => void;
+  onNavigateToShop?: () => void;
 }
 
 const COMMON_SACCOS = [
@@ -52,14 +55,26 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   onUpdateBranch,
   onDeleteBranch,
   onUpdateBusinessProfile,
+  onNavigateToShop,
 }) => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [pinInput, setPinInput] = useState('');
   const [showPin, setShowPin] = useState(false);
   const [pinError, setPinError] = useState(false);
 
-  const [activeTab, setActiveTab] = useState<'orders' | 'inventory' | 'locations' | 'profile'>('orders');
+  const [activeTab, setActiveTab] = useState<'orders' | 'inventory' | 'locations' | 'payment_settings' | 'profile'>('orders');
   const [searchTerm, setSearchTerm] = useState('');
+  const [orderStatusFilter, setOrderStatusFilter] = useState<string>('all');
+  
+  // Real-time Action Feedback Toast
+  const [actionToast, setActionToast] = useState<{ message: string; type: 'success' | 'info' } | null>(null);
+
+  const showToast = (message: string, type: 'success' | 'info' = 'success') => {
+    setActionToast({ message, type });
+    setTimeout(() => {
+      setActionToast(null);
+    }, 4000);
+  };
   
   // Product Modal State
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -114,6 +129,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   // Business Profile Form State
   const [profileName, setProfileName] = useState(businessProfile.name);
   const [profileTagline, setProfileTagline] = useState(businessProfile.tagline);
+  const [profilePicture, setProfilePicture] = useState(businessProfile.profilePicture || '');
   const [profilePhones, setProfilePhones] = useState(businessProfile.phones.join(', '));
   const [profileEmails, setProfileEmails] = useState(businessProfile.emails.join(', '));
   const [profileWhatsapp, setProfileWhatsapp] = useState(businessProfile.whatsapp);
@@ -124,6 +140,25 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [profileKra, setProfileKra] = useState(businessProfile.kraPin || 'P051982734K');
   const [profileHours, setProfileHours] = useState(businessProfile.workingHours);
   const [profileSavedToast, setProfileSavedToast] = useState(false);
+
+  const profilePicFileInputRef = useRef<HTMLInputElement>(null);
+  const profilePicCameraInputRef = useRef<HTMLInputElement>(null);
+
+  // Synchronize business profile form fields when businessProfile changes
+  useEffect(() => {
+    setProfileName(businessProfile.name);
+    setProfileTagline(businessProfile.tagline);
+    setProfilePicture(businessProfile.profilePicture || '');
+    setProfilePhones(businessProfile.phones.join(', '));
+    setProfileEmails(businessProfile.emails.join(', '));
+    setProfileWhatsapp(businessProfile.whatsapp);
+    setProfileTill(businessProfile.tillNumber);
+    setProfilePaybill(businessProfile.paybillNumber || '247247');
+    setProfileInstagram(businessProfile.instagram);
+    setProfileTiktok(businessProfile.tiktok);
+    setProfileKra(businessProfile.kraPin || 'P051982734K');
+    setProfileHours(businessProfile.workingHours);
+  }, [businessProfile]);
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
@@ -231,6 +266,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         description: formDescription,
         compatibleVehicles: vehicleList,
       });
+      showToast(`Updated "${formName}" in stock & catalog!`);
     } else {
       const newProd: Product = {
         id: `p-${Date.now()}`,
@@ -247,6 +283,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         warranty: '1 Year Warranty',
       };
       onAddProduct(newProd);
+      showToast(`Added new spare part "${formName}" to catalog!`);
     }
 
     setIsAddModalOpen(false);
@@ -290,6 +327,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     };
 
     onUpdateOrderTransport(selectedOrderForTransport.id, details);
+    showToast(`Updated Transport & Matatu Sacco tracking for ${selectedOrderForTransport.customerName}!`);
     setSelectedOrderForTransport(null);
   };
 
@@ -363,6 +401,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         image: branchImage,
         isLivePinned: true,
       });
+      showToast(`Branch "${branchName}" & Live GPS updated!`);
     } else {
       const newB: BranchLocation = {
         id: `branch-${Date.now()}`,
@@ -384,8 +423,31 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         isLivePinned: true,
       };
       onAddBranch(newB);
+      showToast(`Registered new branch "${branchName}"!`);
     }
     setIsBranchModalOpen(false);
+  };
+
+  const handleProfilePicFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        if (typeof reader.result === 'string') {
+          setProfilePicture(reader.result);
+          showToast('Storefront profile picture selected! Click "Save Business Profile" to apply.');
+        }
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleVerifyPendingOrder = (ord: Order) => {
+    onUpdateOrderStatus(ord.id, 'Confirmed');
+    showToast(`Payment verified for order ${ord.orderNumber} (${ord.customerName})! Order status set to "Confirmed".`);
+    if (ord.customerEmail) {
+      onSendOrderEmailNotification(ord.id, ord.customerEmail);
+    }
   };
 
   const handleSaveBusinessProfile = (e: React.FormEvent) => {
@@ -397,6 +459,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       ...businessProfile,
       name: profileName,
       tagline: profileTagline,
+      profilePicture: profilePicture.trim(),
       phones: phoneArr,
       emails: emailArr,
       whatsapp: profileWhatsapp,
@@ -410,6 +473,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
     onUpdateBusinessProfile(updated);
     setProfileSavedToast(true);
+    showToast('Business details, profile picture & contact settings saved!');
     setTimeout(() => setProfileSavedToast(false), 3500);
   };
 
@@ -486,6 +550,25 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-8 animate-fadeIn text-white">
+      {/* Real-time Sync Toast Notification */}
+      {actionToast && (
+        <div className="mb-6 p-4 bg-emerald-950/90 border-2 border-emerald-500 text-white font-bold flex items-center justify-between shadow-2xl animate-bounce">
+          <div className="flex items-center gap-3">
+            <CheckCircle className="w-5 h-5 text-emerald-400 shrink-0" />
+            <span className="text-xs sm:text-sm tracking-wide">{actionToast.message}</span>
+          </div>
+          {onNavigateToShop && (
+            <button
+              onClick={onNavigateToShop}
+              className="px-3 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-black font-black uppercase text-[11px] flex items-center gap-1 cursor-pointer transition-colors"
+            >
+              <span>View Store</span>
+              <ExternalLink className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Top Admin Header */}
       <div className="flex flex-wrap items-center justify-between gap-4 mb-8 bg-[#111] p-6 sm:p-8 border border-zinc-800">
         <div>
@@ -502,7 +585,18 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           </h2>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center flex-wrap gap-2 sm:gap-3">
+          {onNavigateToShop && (
+            <button
+              onClick={onNavigateToShop}
+              className="px-4 py-3 bg-zinc-800 hover:bg-zinc-700 text-white font-black uppercase tracking-wider text-xs flex items-center gap-2 border border-zinc-700 cursor-pointer transition-colors"
+              title="Open the live storefront to see changes"
+            >
+              <Eye className="w-4 h-4 text-orange-500" />
+              <span className="hidden sm:inline">View Live Storefront</span>
+              <span className="sm:hidden">Store</span>
+            </button>
+          )}
           <button
             onClick={handleOpenAddProduct}
             className="px-5 py-3 bg-orange-500 hover:bg-orange-400 text-black font-black uppercase tracking-tighter text-xs flex items-center gap-2 transition-colors cursor-pointer"
@@ -575,6 +669,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           }`}
         >
           Orders &amp; Transport ({orders.length})
+          {orders.filter((o) => o.status === 'Payment Pending Verification').length > 0 && (
+            <span className="ml-2 px-1.5 py-0.2 bg-amber-400 text-black font-black text-[10px] rounded-xs animate-pulse">
+              {orders.filter((o) => o.status === 'Payment Pending Verification').length} UNVERIFIED
+            </span>
+          )}
         </button>
         <button
           onClick={() => setActiveTab('inventory')}
@@ -597,6 +696,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           Branches &amp; Live GPS ({branches.length})
         </button>
         <button
+          onClick={() => setActiveTab('payment_settings')}
+          className={`px-5 py-2.5 text-xs font-black uppercase tracking-wider transition-all cursor-pointer whitespace-nowrap ${
+            activeTab === 'payment_settings'
+              ? 'bg-orange-500 text-black'
+              : 'text-zinc-400 hover:text-white hover:bg-zinc-900'
+          }`}
+        >
+          Payment Settings ({(businessProfile.paymentMethods || []).filter(p => p.isActive).length} Active)
+        </button>
+        <button
           onClick={() => setActiveTab('profile')}
           className={`px-5 py-2.5 text-xs font-black uppercase tracking-wider transition-all cursor-pointer whitespace-nowrap ${
             activeTab === 'profile'
@@ -611,14 +720,34 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       {/* Tab 1: Orders & Transport Management */}
       {activeTab === 'orders' && (
         <div className="bg-[#111] border border-zinc-800 overflow-hidden">
-          <div className="p-4 border-b border-zinc-800 flex flex-wrap items-center justify-between gap-2">
+          <div className="p-4 border-b border-zinc-800 flex flex-wrap items-center justify-between gap-3">
             <div>
               <h3 className="font-black uppercase tracking-wider text-white text-xs">
-                Customer Orders, Sacco Transport &amp; Receipt Generator
+                Customer Orders, Sacco Transport &amp; Payment Verification
               </h3>
               <p className="text-[10px] text-zinc-400">
-                Generate official receipts, set transport details (Sacco / ETA), and send email notifications to buyers.
+                Verify customer M-Pesa / Bank payments, dispatch Sacco parcels, and generate branded tax receipts.
               </p>
+            </div>
+
+            {/* Filter by status */}
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] font-black uppercase text-zinc-400">Filter Status:</span>
+              <select
+                value={orderStatusFilter}
+                onChange={(e) => setOrderStatusFilter(e.target.value)}
+                className="px-3 py-1.5 bg-zinc-900 border border-zinc-800 text-white font-bold text-xs uppercase focus:outline-none focus:border-orange-500 cursor-pointer"
+              >
+                <option value="all">All Orders ({orders.length})</option>
+                <option value="Payment Pending Verification">
+                  Pending Verification ({orders.filter((o) => o.status === 'Payment Pending Verification').length})
+                </option>
+                <option value="Confirmed">Confirmed ({orders.filter((o) => o.status === 'Confirmed').length})</option>
+                <option value="Processing">Processing ({orders.filter((o) => o.status === 'Processing').length})</option>
+                <option value="Dispatched">Dispatched ({orders.filter((o) => o.status === 'Dispatched').length})</option>
+                <option value="Delivered">Delivered ({orders.filter((o) => o.status === 'Delivered').length})</option>
+                <option value="Cancelled">Cancelled ({orders.filter((o) => o.status === 'Cancelled').length})</option>
+              </select>
             </div>
           </div>
 
@@ -627,125 +756,186 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               <thead className="bg-[#050505] text-zinc-500 uppercase font-black tracking-wider text-[10px] border-b border-zinc-800">
                 <tr>
                   <th className="px-4 py-3">Order / Date</th>
-                  <th className="px-4 py-3">Customer &amp; Email</th>
+                  <th className="px-4 py-3">Customer &amp; Phone</th>
                   <th className="px-4 py-3">Ordered Items</th>
+                  <th className="px-4 py-3">Payment Info &amp; Code</th>
                   <th className="px-4 py-3">Transport / Sacco</th>
-                  <th className="px-4 py-3">M-Pesa / Total</th>
                   <th className="px-4 py-3">Status</th>
                   <th className="px-4 py-3 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-800">
-                {orders.map((ord) => (
-                  <tr key={ord.id} className="hover:bg-zinc-900/50">
-                    <td className="px-4 py-3 font-semibold">
-                      <div className="text-white font-black">{ord.orderNumber}</div>
-                      <div className="text-[10px] text-zinc-500">{ord.date}</div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="font-bold text-white">{ord.customerName}</div>
-                      <a
-                        href={`tel:${ord.customerPhone}`}
-                        className="text-orange-400 hover:underline font-mono text-[11px] block"
-                      >
-                        {ord.customerPhone}
-                      </a>
-                      {ord.customerEmail && (
-                        <div className="text-[10px] text-zinc-400 font-mono flex items-center gap-1">
-                          <Mail className="w-3 h-3 text-zinc-500" />
-                          <span>{ord.customerEmail}</span>
-                        </div>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 max-w-xs">
-                      {ord.items.map((i, idx) => (
-                        <div key={idx} className="truncate text-zinc-300">
-                          {i.quantity}x {i.product.name}
-                        </div>
-                      ))}
-                    </td>
-                    <td className="px-4 py-3">
-                      {ord.transportDetails ? (
-                        <div className="space-y-0.5">
-                          <div className="font-black text-white text-[11px] flex items-center gap-1">
-                            <Truck className="w-3.5 h-3.5 text-orange-500" />
-                            <span>{ord.transportDetails.saccoOrCourier}</span>
-                          </div>
-                          {ord.transportDetails.vehiclePlate && (
-                            <div className="text-[10px] font-mono text-orange-400 font-bold">
-                              {ord.transportDetails.vehiclePlate}
-                            </div>
-                          )}
-                          {ord.transportDetails.estimatedArrivalTime && (
-                            <div className="text-[10px] text-emerald-400 font-bold flex items-center gap-1">
-                              <Clock className="w-3 h-3" />
-                              <span>ETA: {ord.transportDetails.estimatedArrivalTime}</span>
-                            </div>
-                          )}
-                        </div>
-                      ) : (
-                        <span className="text-[10px] font-bold text-zinc-500 uppercase">
-                          {ord.deliveryMethod.replace('_', ' ')}
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="font-black text-white">Ksh {ord.total.toLocaleString()}</div>
-                      {ord.mpesaReceipt && (
-                        <span className="font-mono text-[10px] bg-zinc-900 text-emerald-400 px-1.5 py-0.5 border border-zinc-800 block w-fit mt-0.5">
-                          {ord.mpesaReceipt}
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3">
-                      <select
-                        value={ord.status}
-                        onChange={(e) =>
-                          onUpdateOrderStatus(ord.id, e.target.value as Order['status'])
-                        }
-                        className="text-xs font-black uppercase tracking-wider bg-zinc-900 text-white border border-zinc-800 px-2.5 py-1.5 focus:outline-none focus:border-orange-500"
-                      >
-                        <option value="Pending">Pending</option>
-                        <option value="Confirmed">Confirmed</option>
-                        <option value="Processing">Processing</option>
-                        <option value="Dispatched">Dispatched</option>
-                        <option value="Delivered">Delivered</option>
-                        <option value="Cancelled">Cancelled</option>
-                      </select>
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <div className="inline-flex items-center gap-1.5">
-                        <button
-                          onClick={() => handleOpenTransportModal(ord)}
-                          title="Manage Sacco Transport / Delivery"
-                          className="p-2 bg-zinc-900 hover:bg-orange-500 hover:text-black text-zinc-300 border border-zinc-800 transition-colors cursor-pointer"
-                        >
-                          <Truck className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => setReceiptOrder(ord)}
-                          title="Generate / Print Official Receipt"
-                          className="p-2 bg-zinc-900 hover:bg-orange-500 hover:text-black text-zinc-300 border border-zinc-800 transition-colors cursor-pointer"
-                        >
-                          <Printer className="w-4 h-4" />
-                        </button>
-                        {ord.customerEmail && (
-                          <button
-                            onClick={() => onSendOrderEmailNotification(ord.id, ord.customerEmail!)}
-                            title={`Send Email Notification to ${ord.customerEmail}`}
-                            className="p-2 bg-zinc-900 hover:bg-emerald-500 hover:text-black text-emerald-400 border border-zinc-800 transition-colors cursor-pointer"
+                {orders
+                  .filter((ord) => (orderStatusFilter === 'all' ? true : ord.status === orderStatusFilter))
+                  .map((ord) => {
+                    const isPendingVerification = ord.status === 'Payment Pending Verification';
+
+                    return (
+                      <tr key={ord.id} className={`hover:bg-zinc-900/50 ${isPendingVerification ? 'bg-amber-950/15' : ''}`}>
+                        <td className="px-4 py-3 font-semibold">
+                          <div className="text-white font-black">{ord.orderNumber}</div>
+                          <div className="text-[10px] text-zinc-500">{ord.date}</div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="font-bold text-white">{ord.customerName}</div>
+                          <a
+                            href={`tel:${ord.customerPhone}`}
+                            className="text-orange-400 hover:underline font-mono text-[11px] block"
                           >
-                            <Mail className="w-4 h-4" />
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                            {ord.customerPhone}
+                          </a>
+                          {ord.customerEmail && (
+                            <div className="text-[10px] text-zinc-400 font-mono flex items-center gap-1">
+                              <Mail className="w-3 h-3 text-zinc-500" />
+                              <span>{ord.customerEmail}</span>
+                            </div>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 max-w-xs">
+                          {ord.items.map((i, idx) => (
+                            <div key={idx} className="truncate text-zinc-300">
+                              {i.quantity}x {i.product.name}
+                            </div>
+                          ))}
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="font-black text-white">Ksh {ord.total.toLocaleString()}</div>
+                          <div className="text-[10px] font-bold text-zinc-400 uppercase mt-0.5">
+                            {ord.paymentMethodName || ord.paymentMethod || 'M-Pesa'}
+                          </div>
+                          {ord.paidFromPhone && (
+                            <div className="text-[10px] font-mono text-emerald-400">
+                              From: {ord.paidFromPhone}
+                            </div>
+                          )}
+                          {ord.mpesaReceipt && (
+                            <div className="flex items-center gap-1 mt-0.5">
+                              <span className="font-mono text-[10px] bg-zinc-900 text-emerald-400 px-1.5 py-0.5 border border-zinc-800 block w-fit">
+                                {ord.mpesaReceipt}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  navigator.clipboard?.writeText(ord.mpesaReceipt || '');
+                                  showToast(`Copied transaction code: ${ord.mpesaReceipt}`);
+                                }}
+                                className="p-0.5 text-zinc-500 hover:text-white"
+                                title="Copy code"
+                              >
+                                <Copy className="w-3 h-3" />
+                              </button>
+                            </div>
+                          )}
+                        </td>
+                        <td className="px-4 py-3">
+                          {ord.transportDetails ? (
+                            <div className="space-y-0.5">
+                              <div className="font-black text-white text-[11px] flex items-center gap-1">
+                                <Truck className="w-3.5 h-3.5 text-orange-500" />
+                                <span>{ord.transportDetails.saccoOrCourier}</span>
+                              </div>
+                              {ord.transportDetails.vehiclePlate && (
+                                <div className="text-[10px] font-mono text-orange-400 font-bold">
+                                  {ord.transportDetails.vehiclePlate}
+                                </div>
+                              )}
+                              {ord.transportDetails.estimatedArrivalTime && (
+                                <div className="text-[10px] text-emerald-400 font-bold flex items-center gap-1">
+                                  <Clock className="w-3 h-3" />
+                                  <span>ETA: {ord.transportDetails.estimatedArrivalTime}</span>
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-[10px] font-bold text-zinc-500 uppercase">
+                              {ord.deliveryMethod.replace('_', ' ')}
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3">
+                          {isPendingVerification ? (
+                            <div className="space-y-1">
+                              <span className="px-2 py-0.5 bg-amber-500/20 text-amber-400 border border-amber-500/30 text-[10px] font-black uppercase tracking-wider block w-fit">
+                                Pending Verification
+                              </span>
+                              <button
+                                onClick={() => handleVerifyPendingOrder(ord)}
+                                className="px-2.5 py-1 bg-emerald-500 hover:bg-emerald-400 text-black font-black uppercase text-[10px] flex items-center gap-1 cursor-pointer transition-colors shadow"
+                              >
+                                <Check className="w-3 h-3" />
+                                <span>Verify &amp; Confirm</span>
+                              </button>
+                            </div>
+                          ) : (
+                            <select
+                              value={ord.status}
+                              onChange={(e) =>
+                                onUpdateOrderStatus(ord.id, e.target.value as Order['status'])
+                              }
+                              className="text-xs font-black uppercase tracking-wider bg-zinc-900 text-white border border-zinc-800 px-2.5 py-1.5 focus:outline-none focus:border-orange-500"
+                            >
+                              <option value="Payment Pending Verification">Pending Verification</option>
+                              <option value="Pending">Pending</option>
+                              <option value="Confirmed">Confirmed</option>
+                              <option value="Processing">Processing</option>
+                              <option value="Dispatched">Dispatched</option>
+                              <option value="Delivered">Delivered</option>
+                              <option value="Cancelled">Cancelled</option>
+                            </select>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          <div className="inline-flex items-center gap-1.5">
+                            {isPendingVerification && (
+                              <button
+                                onClick={() => handleVerifyPendingOrder(ord)}
+                                title="Confirm M-Pesa / Bank payment has been received"
+                                className="p-2 bg-emerald-500 hover:bg-emerald-400 text-black font-bold transition-colors cursor-pointer"
+                              >
+                                <Check className="w-4 h-4" />
+                              </button>
+                            )}
+                            <button
+                              onClick={() => handleOpenTransportModal(ord)}
+                              title="Manage Sacco Transport / Delivery"
+                              className="p-2 bg-zinc-900 hover:bg-orange-500 hover:text-black text-zinc-300 border border-zinc-800 transition-colors cursor-pointer"
+                            >
+                              <Truck className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => setReceiptOrder(ord)}
+                              title="Generate / Print Official Receipt"
+                              className="p-2 bg-zinc-900 hover:bg-orange-500 hover:text-black text-zinc-300 border border-zinc-800 transition-colors cursor-pointer"
+                            >
+                              <Printer className="w-4 h-4" />
+                            </button>
+                            {ord.customerEmail && (
+                              <button
+                                onClick={() => onSendOrderEmailNotification(ord.id, ord.customerEmail!)}
+                                title={`Send Email Notification to ${ord.customerEmail}`}
+                                className="p-2 bg-zinc-900 hover:bg-emerald-500 hover:text-black text-emerald-400 border border-zinc-800 transition-colors cursor-pointer"
+                              >
+                                <Mail className="w-4 h-4" />
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
               </tbody>
             </table>
           </div>
         </div>
+      )}
+
+      {/* Tab: Payment Gateway Settings */}
+      {activeTab === 'payment_settings' && (
+        <PaymentSettingsTab
+          businessProfile={businessProfile}
+          onUpdateBusinessProfile={onUpdateBusinessProfile}
+          showToast={showToast}
+        />
       )}
 
       {/* Tab 2: Stock & Inventory Management with Camera Picture Taking */}
@@ -997,6 +1187,103 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           )}
 
           <form onSubmit={handleSaveBusinessProfile} className="space-y-5 text-xs">
+            {/* Business Profile Picture / Storefront Avatar */}
+            <div className="p-5 bg-zinc-950 border border-zinc-800 space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <span className="text-[10px] font-black uppercase tracking-widest text-orange-500 block">
+                    Brand Logo &amp; Profile Picture
+                  </span>
+                  <h4 className="text-sm font-black uppercase text-white">
+                    Storefront Profile Picture &amp; Logo
+                  </h4>
+                  <p className="text-[11px] text-zinc-400">
+                    Upload or take a photo of your storefront, logo, or workshop badge to display in the header and on customer receipts.
+                  </p>
+                </div>
+
+                {profilePicture && (
+                  <button
+                    type="button"
+                    onClick={() => setProfilePicture('')}
+                    className="px-2.5 py-1 text-xs text-zinc-400 hover:text-red-400 bg-zinc-900 border border-zinc-800 cursor-pointer"
+                  >
+                    Remove Photo
+                  </button>
+                )}
+              </div>
+
+              <div className="flex flex-col sm:flex-row items-center gap-5">
+                {/* Preview */}
+                <div className="relative w-24 h-24 sm:w-28 sm:h-28 bg-zinc-900 border-2 border-orange-500 shrink-0 overflow-hidden flex items-center justify-center">
+                  {profilePicture ? (
+                    <img
+                      src={profilePicture}
+                      alt="Business Profile"
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <div className="text-center p-2">
+                      <Image className="w-8 h-8 text-zinc-600 mx-auto mb-1" />
+                      <span className="text-[10px] font-bold text-zinc-500 uppercase">No Picture</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Upload & Camera Buttons */}
+                <div className="flex-1 space-y-3 w-full">
+                  <div className="flex flex-wrap gap-2">
+                    <input
+                      type="file"
+                      ref={profilePicFileInputRef}
+                      onChange={handleProfilePicFileUpload}
+                      accept="image/*"
+                      className="hidden"
+                    />
+                    <input
+                      type="file"
+                      ref={profilePicCameraInputRef}
+                      onChange={handleProfilePicFileUpload}
+                      accept="image/*"
+                      capture="environment"
+                      className="hidden"
+                    />
+
+                    <button
+                      type="button"
+                      onClick={() => profilePicCameraInputRef.current?.click()}
+                      className="px-4 py-2.5 bg-orange-500 hover:bg-orange-400 text-black font-black uppercase tracking-wider text-xs flex items-center gap-2 cursor-pointer transition-colors"
+                    >
+                      <Camera className="w-4 h-4" />
+                      <span>Take Photo with Camera</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => profilePicFileInputRef.current?.click()}
+                      className="px-4 py-2.5 bg-zinc-900 hover:bg-zinc-800 text-white font-black uppercase tracking-wider text-xs flex items-center gap-2 border border-zinc-700 cursor-pointer transition-colors"
+                    >
+                      <Upload className="w-4 h-4 text-orange-500" />
+                      <span>Upload Image File</span>
+                    </button>
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-black uppercase tracking-wider text-zinc-500 mb-1">
+                      Or Image URL:
+                    </label>
+                    <input
+                      type="url"
+                      value={profilePicture}
+                      onChange={(e) => setProfilePicture(e.target.value)}
+                      placeholder="https://images.unsplash.com/..."
+                      className="w-full p-2.5 bg-zinc-900 border border-zinc-800 text-white text-xs font-mono"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block font-black uppercase tracking-wider text-zinc-400 mb-1">

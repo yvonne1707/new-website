@@ -1,10 +1,10 @@
 import React from 'react';
-import { Product } from '../types';
-import { X, ShoppingCart, Check, ShieldCheck, Truck, Phone, MessageSquare, AlertCircle, Wrench } from 'lucide-react';
-import { BUSINESS_INFO } from '../data/initialData';
+import { Product, BusinessProfile } from '../types';
+import { X, ShoppingCart, ShieldCheck, Truck, MessageSquare, Wrench } from 'lucide-react';
 
 interface ProductDetailsModalProps {
   product: Product | null;
+  businessProfile: BusinessProfile;
   onClose: () => void;
   onAddToCart: (product: Product) => void;
   isInCart?: boolean;
@@ -12,14 +12,15 @@ interface ProductDetailsModalProps {
 
 export const ProductDetailsModal: React.FC<ProductDetailsModalProps> = ({
   product,
+  businessProfile,
   onClose,
   onAddToCart,
   isInCart,
 }) => {
   if (!product) return null;
 
-  const whatsappInquiryUrl = `https://wa.me/${BUSINESS_INFO.whatsapp}?text=${encodeURIComponent(
-    `Hello Rissau Auto Agency, I am interested in ${product.name} (Part No: ${product.partNumber || 'N/A'}). Please confirm availability at your Kirinyaga Rd or Umoja shop.`
+  const whatsappInquiryUrl = `https://wa.me/${businessProfile.whatsapp}?text=${encodeURIComponent(
+    `Hello ${businessProfile.name}, I am interested in ${product.name} (Part No: ${product.partNumber || 'OEM'}). Please confirm availability and dispatch terms.`
   )}`;
 
   return (
@@ -59,11 +60,11 @@ export const ProductDetailsModal: React.FC<ProductDetailsModalProps> = ({
               </div>
               <div className="flex items-center gap-2 text-zinc-300 font-bold uppercase tracking-wider text-[11px]">
                 <Truck className="w-4 h-4 text-orange-500" />
-                <span>Same-Day Nairobi &amp; Countrywide Dispatch</span>
+                <span>Same-Day Courier &amp; Countrywide Sacco Dispatch</span>
               </div>
               <div className="flex items-center gap-2 text-zinc-300 font-bold uppercase tracking-wider text-[11px]">
                 <Wrench className="w-4 h-4 text-orange-500" />
-                <span>Fitting Assistance at Umoja &amp; Kirinyaga Rd</span>
+                <span>Fitting Assistance &amp; Free Counter Advice</span>
               </div>
             </div>
           </div>

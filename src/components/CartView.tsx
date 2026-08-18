@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
-import { CartItem } from '../types';
-import { BUSINESS_INFO } from '../data/initialData';
-import { Trash2, Plus, Minus, ArrowLeft, ShieldCheck, Truck, ShoppingBag, Smartphone, MessageSquare, Mail } from 'lucide-react';
+import { CartItem, BusinessProfile, BranchLocation } from '../types';
+import { Trash2, Plus, Minus, ArrowLeft, ShieldCheck, Truck, ShoppingBag, Smartphone, MessageSquare, Mail, MapPin } from 'lucide-react';
 
 interface CartViewProps {
   cart: CartItem[];
+  businessProfile: BusinessProfile;
+  branches: BranchLocation[];
   onUpdateQuantity: (productId: string, quantity: number) => void;
   onRemoveItem: (productId: string) => void;
   onClearCart: () => void;
@@ -12,7 +13,7 @@ interface CartViewProps {
     customerName: string;
     customerPhone: string;
     customerEmail: string;
-    deliveryMethod: 'pickup_kirinyaga' | 'pickup_umoja' | 'nairobi_courier' | 'upcountry_parcel';
+    deliveryMethod: string;
     deliveryAddress: string;
     notes: string;
     subtotal: number;
@@ -24,6 +25,8 @@ interface CartViewProps {
 
 export const CartView: React.FC<CartViewProps> = ({
   cart,
+  businessProfile,
+  branches,
   onUpdateQuantity,
   onRemoveItem,
   onClearCart,
@@ -34,9 +37,8 @@ export const CartView: React.FC<CartViewProps> = ({
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
   const [customerEmail, setCustomerEmail] = useState('');
-  const [deliveryMethod, setDeliveryMethod] = useState<
-    'pickup_kirinyaga' | 'pickup_umoja' | 'nairobi_courier' | 'upcountry_parcel'
-  >('pickup_kirinyaga');
+  const [selectedBranchId, setSelectedBranchId] = useState(branches[0]?.id || 'kirinyaga');
+  const [deliveryType, setDeliveryType] = useState<'pickup' | 'nairobi_courier' | 'upcountry_parcel'>('pickup');
   const [deliveryAddress, setDeliveryAddress] = useState('');
   const [notes, setNotes] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
@@ -45,13 +47,15 @@ export const CartView: React.FC<CartViewProps> = ({
   const subtotal = cart.reduce((sum, item) => sum + item.product.price * item.quantity, 0);
 
   const deliveryFee =
-    deliveryMethod === 'pickup_kirinyaga' || deliveryMethod === 'pickup_umoja'
+    deliveryType === 'pickup'
       ? 0
-      : deliveryMethod === 'nairobi_courier'
+      : deliveryType === 'nairobi_courier'
       ? 350
       : 650;
 
   const total = subtotal + deliveryFee;
+
+  const selectedBranch = branches.find((b) => b.id === selectedBranchId) || branches[0];
 
   const handleCheckout = (e: React.FormEvent) => {
     e.preventDefault();
@@ -63,18 +67,29 @@ export const CartView: React.FC<CartViewProps> = ({
       setErrorMsg('Please enter a valid Safaricom phone number (e.g. 0722000000)');
       return;
     }
-    if ((deliveryMethod === 'nairobi_courier' || deliveryMethod === 'upcountry_parcel') && !deliveryAddress.trim()) {
+    if ((deliveryType === 'nairobi_courier' || deliveryType === 'upcountry_parcel') && !deliveryAddress.trim()) {
       setErrorMsg('Please provide your delivery address or destination town');
       return;
     }
 
     setErrorMsg('');
+
+    const formattedDeliveryMethod =
+      deliveryType === 'pickup'
+        ? `Pickup at ${selectedBranch?.shortName || 'Counter'}`
+        : deliveryType;
+
+    const formattedAddress =
+      deliveryType === 'pickup'
+        ? `Branch Pickup: ${selectedBranch?.name} (${selectedBranch?.address})`
+        : deliveryAddress;
+
     onProceedToMpesa({
       customerName,
       customerPhone,
-      customerEmail: customerEmail.trim() || 'customer@gmail.com',
-      deliveryMethod,
-      deliveryAddress,
+      customerEmail: customerEmail.trim() || `${customerPhone}@customer.ke`,
+      deliveryMethod: formattedDeliveryMethod,
+      deliveryAddress: formattedAddress,
       notes,
       subtotal,
       deliveryFee,
@@ -88,9 +103,14 @@ export const CartView: React.FC<CartViewProps> = ({
       .map((item) => `• ${item.quantity}x ${item.product.name} (KES ${(item.product.price * item.quantity).toLocaleString()})`)
       .join('\n');
 
-    const message = `*NEW SPARE PARTS ORDER - RISSAU AUTO AGENCY*\n\n*Customer:* ${customerName || 'Direct Customer'}\n*Phone:* ${customerPhone || 'Not specified'}\n*Email:* ${customerEmail || 'Not specified'}\n*Delivery Method:* ${deliveryMethod.toUpperCase().replace('_', ' ')}\n${deliveryAddress ? `*Destination:* ${deliveryAddress}\n` : ''}\n*Items:*\n${itemList}\n\n*Subtotal:* KES ${subtotal.toLocaleString()}\n*Delivery:* KES ${deliveryFee.toLocaleString()}\n*TOTAL:* KES ${total.toLocaleString()}\n\nPlease confirm availability and dispatch terms.`;
+    const methodDesc =
+      deliveryType === 'pickup'
+        ? `Counter Pickup at ${selectedBranch?.shortName}`
+        : deliveryType.toUpperCase().replace('_', ' ');
 
-    window.open(`https://wa.me/${BUSINESS_INFO.whatsapp}?text=${encodeURIComponent(message)}`, '_blank');
+    const message = `*NEW SPARE PARTS ORDER - ${businessProfile.name.toUpperCase()}*\n\n*Customer:* ${customerName || 'Direct Customer'}\n*Phone:* ${customerPhone || 'Not specified'}\n*Email:* ${customerEmail || 'Not specified'}\n*Delivery:* ${methodDesc}\n${deliveryAddress ? `*Destination:* ${deliveryAddress}\n` : ''}\n*Items:*\n${itemList}\n\n*Subtotal:* KES ${subtotal.toLocaleString()}\n*Delivery:* KES ${deliveryFee.toLocaleString()}\n*TOTAL:* KES ${total.toLocaleString()}\n\nPlease confirm availability and dispatch.`;
+
+    window.open(`https://wa.me/${businessProfile.whatsapp}?text=${encodeURIComponent(message)}`, '_blank');
   };
 
   if (cart.length === 0) {
@@ -106,7 +126,7 @@ export const CartView: React.FC<CartViewProps> = ({
           No Spare Parts Selected
         </h2>
         <p className="text-xs sm:text-sm text-zinc-400 max-w-md mx-auto mt-2 mb-8">
-          Browse our tires, gaskets, oils, suspension, and brake parts. Genuine parts ready for dispatch across Kenya.
+          Browse our tires, gaskets, oils, suspension, and brake parts. Genuine parts ready for pickup or dispatch across Kenya.
         </p>
         <button
           onClick={onNavigateToShop}
@@ -217,7 +237,7 @@ export const CartView: React.FC<CartViewProps> = ({
           <div className="p-4 bg-zinc-900/60 border border-zinc-800 flex items-center gap-3 text-xs text-zinc-300">
             <ShieldCheck className="w-5 h-5 text-orange-500 shrink-0" />
             <span>
-              All purchases backed by <strong className="text-white">Rissau Auto Agency Genuine Guarantee</strong>. Official digital receipt &amp; email confirmation dispatched on payment clearance.
+              All purchases backed by <strong className="text-white">{businessProfile.name} Genuine Guarantee</strong>. Official digital receipt dispatched immediately to your email on payment clearance.
             </span>
           </div>
         </div>
@@ -251,167 +271,207 @@ export const CartView: React.FC<CartViewProps> = ({
                   required
                   value={customerName}
                   onChange={(e) => setCustomerName(e.target.value)}
-                  placeholder="e.g. John Kamau / Apex Auto Garage"
-                  className="w-full p-3 bg-zinc-900 border border-zinc-800 text-white font-bold placeholder:text-zinc-600 focus:outline-none focus:border-orange-500"
+                  placeholder="e.g. David Mwangi"
+                  className="w-full p-3 bg-zinc-900 border border-zinc-800 text-white uppercase text-xs font-bold focus:outline-none focus:border-orange-500"
                 />
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-1">
-                    Safaricom Phone (M-Pesa) *
-                  </label>
-                  <input
-                    type="tel"
-                    required
-                    value={customerPhone}
-                    onChange={(e) => setCustomerPhone(e.target.value)}
-                    placeholder="07XX XXX XXX"
-                    className="w-full p-3 bg-zinc-900 border border-zinc-800 text-white font-bold font-mono placeholder:text-zinc-600 focus:outline-none focus:border-orange-500"
-                  />
-                </div>
+              <div>
+                <label className="block text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-1">
+                  M-Pesa Phone Number *
+                </label>
+                <input
+                  type="tel"
+                  required
+                  value={customerPhone}
+                  onChange={(e) => setCustomerPhone(e.target.value)}
+                  placeholder="0722 000 000"
+                  className="w-full p-3 bg-zinc-900 border border-zinc-800 text-white font-mono text-xs font-bold focus:outline-none focus:border-orange-500"
+                />
+              </div>
 
-                <div>
-                  <label className="block text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-1 flex items-center gap-1">
-                    <Mail className="w-3 h-3 text-orange-500" />
-                    <span>Email (For Receipt &amp; Tracking)</span>
-                  </label>
+              {/* Customer Email for Receipts and Notifications */}
+              <div>
+                <label className="block text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-1 flex items-center justify-between">
+                  <span>Buyer Email (For Official Receipt &amp; Tracking)</span>
+                  <span className="text-orange-500 text-[9px] font-bold">Instant Dispatch</span>
+                </label>
+                <div className="relative">
+                  <Mail className="w-3.5 h-3.5 text-zinc-500 absolute left-3 top-1/2 -translate-y-1/2" />
                   <input
                     type="email"
                     value={customerEmail}
                     onChange={(e) => setCustomerEmail(e.target.value)}
-                    placeholder="yourname@gmail.com"
-                    className="w-full p-3 bg-zinc-900 border border-zinc-800 text-white font-bold font-mono placeholder:text-zinc-600 focus:outline-none focus:border-orange-500"
+                    placeholder="e.g. mwangi@gmail.com"
+                    className="w-full pl-9 pr-3 py-3 bg-zinc-900 border border-zinc-800 text-white font-mono text-xs focus:outline-none focus:border-orange-500"
                   />
                 </div>
               </div>
 
-              {/* Delivery method selector */}
-              <div>
+              {/* Delivery Method Selector */}
+              <div className="pt-2">
                 <label className="block text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-2">
                   Delivery / Collection Option:
                 </label>
                 <div className="space-y-2">
-                  <label className={`flex items-center justify-between p-3 border cursor-pointer transition-all ${
-                    deliveryMethod === 'pickup_kirinyaga' ? 'border-orange-500 bg-orange-500/10' : 'border-zinc-800 bg-zinc-900/60'
+                  {/* Option 1: Pickup at dynamic branches */}
+                  <label className={`p-3 border flex flex-col gap-2 cursor-pointer transition-colors ${
+                    deliveryType === 'pickup' ? 'border-orange-500 bg-orange-500/10' : 'border-zinc-800 bg-zinc-900'
                   }`}>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="radio"
-                        name="delivery"
-                        checked={deliveryMethod === 'pickup_kirinyaga'}
-                        onChange={() => setDeliveryMethod('pickup_kirinyaga')}
-                        className="accent-orange-500"
-                      />
-                      <span className="font-bold text-white uppercase text-[11px]">Free Pickup: Kirinyaga Rd (CBD)</span>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="radio"
+                          name="delivery_type"
+                          checked={deliveryType === 'pickup'}
+                          onChange={() => setDeliveryType('pickup')}
+                          className="accent-orange-500"
+                        />
+                        <span className="font-black uppercase text-white">
+                          Free Branch Counter Pickup
+                        </span>
+                      </div>
+                      <span className="font-mono font-black text-emerald-400">FREE</span>
                     </div>
-                    <span className="font-mono text-emerald-400 font-bold">FREE</span>
+
+                    {deliveryType === 'pickup' && (
+                      <div className="pl-6 pt-1 space-y-1">
+                        <span className="text-[10px] text-zinc-400 uppercase font-bold">Select Store Location:</span>
+                        <select
+                          value={selectedBranchId}
+                          onChange={(e) => setSelectedBranchId(e.target.value)}
+                          className="w-full p-2 bg-[#0a0a0a] border border-zinc-700 text-white font-bold text-xs uppercase"
+                        >
+                          {branches.map((b) => (
+                            <option key={b.id} value={b.id}>
+                              {b.name} ({b.address})
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
                   </label>
 
-                  <label className={`flex items-center justify-between p-3 border cursor-pointer transition-all ${
-                    deliveryMethod === 'pickup_umoja' ? 'border-orange-500 bg-orange-500/10' : 'border-zinc-800 bg-zinc-900/60'
+                  {/* Option 2: Nairobi Courier */}
+                  <label className={`p-3 border flex items-center justify-between cursor-pointer transition-colors ${
+                    deliveryType === 'nairobi_courier' ? 'border-orange-500 bg-orange-500/10' : 'border-zinc-800 bg-zinc-900'
                   }`}>
                     <div className="flex items-center gap-2">
                       <input
                         type="radio"
-                        name="delivery"
-                        checked={deliveryMethod === 'pickup_umoja'}
-                        onChange={() => setDeliveryMethod('pickup_umoja')}
+                        name="delivery_type"
+                        checked={deliveryType === 'nairobi_courier'}
+                        onChange={() => setDeliveryType('nairobi_courier')}
                         className="accent-orange-500"
                       />
-                      <span className="font-bold text-white uppercase text-[11px]">Free Pickup: Umoja, Kangundo Rd</span>
+                      <span className="font-black uppercase text-white">
+                        Nairobi Doorstep Courier / Boda
+                      </span>
                     </div>
-                    <span className="font-mono text-emerald-400 font-bold">FREE</span>
+                    <span className="font-mono font-black text-white">Ksh 350</span>
                   </label>
 
-                  <label className={`flex items-center justify-between p-3 border cursor-pointer transition-all ${
-                    deliveryMethod === 'nairobi_courier' ? 'border-orange-500 bg-orange-500/10' : 'border-zinc-800 bg-zinc-900/60'
+                  {/* Option 3: Upcountry Parcel / Sacco */}
+                  <label className={`p-3 border flex items-center justify-between cursor-pointer transition-colors ${
+                    deliveryType === 'upcountry_parcel' ? 'border-orange-500 bg-orange-500/10' : 'border-zinc-800 bg-zinc-900'
                   }`}>
                     <div className="flex items-center gap-2">
                       <input
                         type="radio"
-                        name="delivery"
-                        checked={deliveryMethod === 'nairobi_courier'}
-                        onChange={() => setDeliveryMethod('nairobi_courier')}
+                        name="delivery_type"
+                        checked={deliveryType === 'upcountry_parcel'}
+                        onChange={() => setDeliveryType('upcountry_parcel')}
                         className="accent-orange-500"
                       />
-                      <span className="font-bold text-white uppercase text-[11px]">Nairobi Doorstep Rider</span>
+                      <span className="font-black uppercase text-white">
+                        Upcountry Parcel via Matatu Sacco
+                      </span>
                     </div>
-                    <span className="font-mono text-white font-bold">KES 350</span>
-                  </label>
-
-                  <label className={`flex items-center justify-between p-3 border cursor-pointer transition-all ${
-                    deliveryMethod === 'upcountry_parcel' ? 'border-orange-500 bg-orange-500/10' : 'border-zinc-800 bg-zinc-900/60'
-                  }`}>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="radio"
-                        name="delivery"
-                        checked={deliveryMethod === 'upcountry_parcel'}
-                        onChange={() => setDeliveryMethod('upcountry_parcel')}
-                        className="accent-orange-500"
-                      />
-                      <span className="font-bold text-white uppercase text-[11px]">Upcountry Matatu / Sacco Parcel</span>
-                    </div>
-                    <span className="font-mono text-white font-bold">KES 650</span>
+                    <span className="font-mono font-black text-white">Ksh 650</span>
                   </label>
                 </div>
               </div>
 
-              {(deliveryMethod === 'nairobi_courier' || deliveryMethod === 'upcountry_parcel') && (
+              {/* Delivery Address if courier or upcountry */}
+              {deliveryType !== 'pickup' && (
                 <div>
                   <label className="block text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-1">
-                    Delivery Address / Destination Town *
+                    Delivery Address / Destination Town / Sacco Stage *
                   </label>
                   <input
                     type="text"
                     required
                     value={deliveryAddress}
                     onChange={(e) => setDeliveryAddress(e.target.value)}
-                    placeholder="e.g. Westlands, Garage Rd / Nakuru Town stage"
-                    className="w-full p-3 bg-zinc-900 border border-zinc-800 text-white font-bold placeholder:text-zinc-600 focus:outline-none focus:border-orange-500"
+                    placeholder="e.g. Westlands Nairobi or 2NK Sacco Stage Nyeri"
+                    className="w-full p-3 bg-zinc-900 border border-zinc-800 text-white uppercase text-xs font-bold focus:outline-none focus:border-orange-500"
                   />
                 </div>
               )}
 
-              {/* Price Calculation summary */}
-              <div className="p-4 bg-[#050505] border border-zinc-800 space-y-2 pt-3">
+              {/* Order Notes */}
+              <div>
+                <label className="block text-[10px] font-black uppercase tracking-widest text-zinc-400 mb-1">
+                  Special Notes / Car Registration (Optional)
+                </label>
+                <input
+                  type="text"
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  placeholder="e.g. Toyota Prado KDD 123A (Front Left Shock)"
+                  className="w-full p-3 bg-zinc-900 border border-zinc-800 text-white uppercase text-xs focus:outline-none focus:border-orange-500"
+                />
+              </div>
+
+              {/* Pricing breakdown */}
+              <div className="pt-4 border-t border-zinc-800 space-y-2 text-xs">
                 <div className="flex justify-between text-zinc-400">
-                  <span className="font-bold uppercase text-[11px]">Items Subtotal:</span>
-                  <span className="font-mono font-bold text-white">Ksh {subtotal.toLocaleString()}</span>
+                  <span className="uppercase font-bold">Subtotal:</span>
+                  <span className="font-mono font-black text-white">Ksh {subtotal.toLocaleString()}</span>
                 </div>
                 <div className="flex justify-between text-zinc-400">
-                  <span className="font-bold uppercase text-[11px]">Delivery Fee:</span>
-                  <span className="font-mono font-bold text-white">
+                  <span className="uppercase font-bold">Delivery Fee:</span>
+                  <span className="font-mono font-black text-white">
                     {deliveryFee === 0 ? 'FREE' : `Ksh ${deliveryFee.toLocaleString()}`}
                   </span>
                 </div>
-                <div className="flex justify-between text-white text-lg font-black pt-2 border-t border-zinc-800">
-                  <span className="uppercase font-display">Grand Total:</span>
-                  <span className="text-orange-500 font-display">Ksh {total.toLocaleString()}</span>
+                <div className="flex justify-between text-base pt-2 border-t border-zinc-800 font-black uppercase text-white">
+                  <span>Total Amount:</span>
+                  <span className="font-mono text-orange-500 text-lg">
+                    Ksh {total.toLocaleString()}
+                  </span>
                 </div>
               </div>
 
-              {/* Submit Buttons */}
-              <div className="space-y-2 pt-2">
-                <button
-                  type="submit"
-                  className="w-full py-4 bg-orange-500 hover:bg-orange-400 text-black font-black uppercase tracking-tighter text-sm flex items-center justify-center gap-2 transition-all cursor-pointer"
-                >
-                  <Smartphone className="w-5 h-5" />
-                  <span>Pay via Lipa Na M-Pesa STK (Ksh {total.toLocaleString()})</span>
-                </button>
+              {/* Submit to Payment Selection */}
+              <button
+                type="submit"
+                className="w-full py-4 bg-orange-500 hover:bg-orange-400 text-black font-black uppercase tracking-tighter text-sm flex items-center justify-center gap-2 transition-all cursor-pointer shadow-lg"
+              >
+                <Smartphone className="w-5 h-5" />
+                <span>Proceed to Payment (KES {total.toLocaleString()})</span>
+              </button>
 
-                <button
-                  type="button"
-                  onClick={handleWhatsAppOrder}
-                  className="w-full py-3 bg-zinc-900 hover:bg-zinc-800 text-zinc-200 hover:text-white border border-zinc-800 font-black uppercase tracking-wider text-xs flex items-center justify-center gap-2 transition-colors cursor-pointer"
-                >
-                  <MessageSquare className="w-4 h-4 text-emerald-400" />
-                  <span>Direct Order via WhatsApp</span>
-                </button>
+              {/* Supported Payment Channels */}
+              <div className="pt-1 flex flex-wrap items-center justify-center gap-2 text-[10px] text-zinc-400 font-bold uppercase tracking-wider">
+                <span className="px-2 py-0.5 bg-zinc-900 border border-zinc-800 text-emerald-400">M-Pesa Send Money</span>
+                <span className="px-2 py-0.5 bg-zinc-900 border border-zinc-800 text-orange-400">Paybill</span>
+                <span className="px-2 py-0.5 bg-zinc-900 border border-zinc-800 text-emerald-400">Buy Goods Till</span>
+                <span className="px-2 py-0.5 bg-zinc-900 border border-zinc-800 text-blue-400">Bank Transfer</span>
               </div>
             </form>
+
+            {/* WhatsApp Alternative */}
+            <div className="pt-2 text-center">
+              <button
+                type="button"
+                onClick={handleWhatsAppOrder}
+                className="w-full py-3 bg-zinc-900 hover:bg-zinc-800 text-emerald-400 text-xs font-black uppercase tracking-wider border border-zinc-800 flex items-center justify-center gap-2 transition-colors cursor-pointer"
+              >
+                <MessageSquare className="w-4 h-4" />
+                <span>Order Directly via WhatsApp</span>
+              </button>
+            </div>
           </div>
         </div>
       </div>
